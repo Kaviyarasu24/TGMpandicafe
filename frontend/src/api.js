@@ -193,5 +193,37 @@ export const api = {
     });
     if (!res.ok) throw new Error('Failed to upload image');
     return await res.json();
+  },
+  
+  // --- USERS ---
+  getUsers: async () => {
+    const res = await fetch(`${API_BASE_URL}/api/users`);
+    if (!res.ok) throw new Error('Failed to fetch users');
+    return await res.json();
+  },
+  addUser: async (user) => {
+    const res = await fetch(`${API_BASE_URL}/api/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(user)
+    });
+    if (!res.ok) throw new Error('Failed to add user');
+    return await res.json();
+  },
+  updateUser: async (user) => {
+    const res = await fetch(`${API_BASE_URL}/api/users/${user.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(user)
+    });
+    if (!res.ok) throw new Error('Failed to update user');
+    return await res.json();
+  },
+  deleteUser: async (id) => {
+    const res = await fetch(`${API_BASE_URL}/api/users/${id}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw new Error('Failed to delete user');
+    return await res.json();
   }
 };

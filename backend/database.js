@@ -440,3 +440,27 @@ export const updateUserProfile = async (username, data) => {
     [data.full_name, data.email, data.mobile, data.theme, username]
   );
 };
+
+export const getUsers = async () => {
+  return await getQuery(`SELECT id, username, role, full_name, email, mobile, theme FROM users ORDER BY username ASC`);
+};
+
+export const addUser = async (user) => {
+  const salt = await bcrypt.genSalt(10);
+  const hash = await bcrypt.hash(user.password || 'password', salt);
+  return await runQuery(
+    `INSERT INTO users (username, password_hash, role, full_name, email, mobile, theme) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+    [user.username, hash, user.role, user.full_name || null, user.email || null, user.mobile || null, 'light']
+  );
+};
+
+export const updateUser = async (id, user) => {
+  return await runQuery(
+    `UPDATE users SET username = ?, role = ?, full_name = ?, email = ?, mobile = ? WHERE id = ?`,
+    [user.username, user.role, user.full_name || null, user.email || null, user.mobile || null, id]
+  );
+};
+
+export const deleteUser = async (id) => {
+  return await runQuery(`DELETE FROM users WHERE id = ?`, [id]);
+};

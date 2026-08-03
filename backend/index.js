@@ -369,6 +369,46 @@ app.delete('/api/categories/:id', async (req, res) => {
   }
 });
 
+// --- USERS MANAGEMENT API ---
+app.get('/api/users', async (req, res) => {
+  try {
+    const users = await db.getUsers();
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/users', async (req, res) => {
+  try {
+    const result = await db.addUser(req.body);
+    broadcastUpdate('user_added');
+    res.json({ success: true, id: result.id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/users/:id', async (req, res) => {
+  try {
+    await db.updateUser(req.params.id, req.body);
+    broadcastUpdate('user_updated');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/users/:id', async (req, res) => {
+  try {
+    await db.deleteUser(req.params.id);
+    broadcastUpdate('user_deleted');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Serve built frontend assets in production
 const distDir = path.join(process.cwd(), '../frontend/dist');
 if (fs.existsSync(distDir)) {

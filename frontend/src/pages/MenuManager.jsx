@@ -4,6 +4,9 @@ import { Plus, Edit, Trash2, Search, X, Image as ImageIcon, Upload, RefreshCw } 
 import { api, socket } from '../api';
 
 const MenuManager = () => {
+  const role = localStorage.getItem('role') || 'sales';
+  const isAdmin = role === 'admin';
+
   const [items, setItems] = useState([]);
   const [categories, setCategories] = useState([]);
   const [search, setSearch] = useState('');
@@ -288,17 +291,19 @@ const MenuManager = () => {
               />
             </div>
           </div>
-          <div style={{ display: 'flex', gap: '1rem' }}>
-            <button className="btn btn-outline" onClick={() => setIsCategoryModalOpen(true)} style={{ whiteSpace: 'nowrap' }}>
-              <span className="desktop-only">Manage Categories</span><span className="mobile-only">Categories</span>
-            </button>
-            <button className="btn btn-outline" onClick={() => setIsRegenModalOpen(true)} style={{ whiteSpace: 'nowrap', color: 'var(--primary)', borderColor: 'var(--primary)' }}>
-              <RefreshCw size={18} /> <span className="desktop-only">Regenerate All Images</span>
-            </button>
-            <button className="btn btn-primary" onClick={openNewItemModal} style={{ whiteSpace: 'nowrap' }}>
-              <Plus size={18} /> <span className="desktop-only">Add New Item</span><span className="mobile-only">Add Item</span>
-            </button>
-          </div>
+          {isAdmin && (
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <button className="btn btn-outline" onClick={() => setIsCategoryModalOpen(true)} style={{ whiteSpace: 'nowrap' }}>
+                <span className="desktop-only">Manage Categories</span><span className="mobile-only">Categories</span>
+              </button>
+              <button className="btn btn-outline" onClick={() => setIsRegenModalOpen(true)} style={{ whiteSpace: 'nowrap', color: 'var(--primary)', borderColor: 'var(--primary)' }}>
+                <RefreshCw size={18} /> <span className="desktop-only">Regenerate All Images</span>
+              </button>
+              <button className="btn btn-primary" onClick={openNewItemModal} style={{ whiteSpace: 'nowrap' }}>
+                <Plus size={18} /> <span className="desktop-only">Add New Item</span><span className="mobile-only">Add Item</span>
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Table Card */}
@@ -311,7 +316,7 @@ const MenuManager = () => {
                   <th>Category</th>
                   <th className="desktop-only">Price</th>
                   <th className="desktop-only">Stock</th>
-                  <th style={{ textAlign: 'right', paddingRight: '1.5rem' }}>Actions</th>
+                  {isAdmin && <th style={{ textAlign: 'right', paddingRight: '1.5rem' }}>Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -348,17 +353,19 @@ const MenuManager = () => {
                         {item.stock_count}
                       </span>
                     </td>
-                    <td style={{ textAlign: 'right', paddingRight: '1.5rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                        <button className="icon-btn" onClick={() => handleEdit(item)} title="Edit Item"><Edit size={18} /></button>
-                        <button className="icon-btn" style={{ color: 'var(--danger)' }} onClick={() => handleDelete(item.id)} title="Delete Item"><Trash2 size={18} /></button>
-                      </div>
-                    </td>
+                    {isAdmin && (
+                      <td style={{ textAlign: 'right', paddingRight: '1.5rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                          <button className="icon-btn" onClick={() => handleEdit(item)} title="Edit Item"><Edit size={18} /></button>
+                          <button className="icon-btn" style={{ color: 'var(--danger)' }} onClick={() => handleDelete(item.id)} title="Delete Item"><Trash2 size={18} /></button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
                 {filteredItems.length === 0 && (
                   <tr>
-                    <td colSpan="5" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                    <td colSpan={isAdmin ? 5 : 4} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
                         <Search size={32} opacity={0.3} />
                         <span style={{ fontSize: '1.1rem', fontWeight: 500 }}>No items found</span>
