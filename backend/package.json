@@ -1,0 +1,21 @@
+{
+  "name": "tgm-pandi-cafe-backend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "duckduckgo-images-api": "^1.0.5",
+    "express": "^5.2.1",
+    "googlethis": "^1.8.0",
+    "multer": "^2.2.0",
+    "pg": "^8.12.0",
+    "socket.io": "^4.8.3"
+  }
+}
