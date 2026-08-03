@@ -1,9 +1,9 @@
 import { io } from 'socket.io-client';
 
 const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || (
-  typeof window !== 'undefined' && window.location.hostname === 'localhost'
+  typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
     ? 'http://localhost:5000'
-    : (typeof window !== 'undefined' ? window.location.origin : '')
+    : 'https://tgmpandicafe.onrender.com'
 );
 
 // Initialize socket.io-client for real-time synchronization
