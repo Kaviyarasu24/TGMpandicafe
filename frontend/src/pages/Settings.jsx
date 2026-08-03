@@ -6,7 +6,7 @@ import {
   Save, RotateCcw, Check, User, Lock, LogOut, Eye, EyeOff
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { api } from '../api';
+import { api, API_BASE_URL } from '../api';
 
 const SETTINGS_SECTIONS = [
   { id: 'users', title: 'User & Role Management', desc: 'Manage staff accounts and permissions', icon: Users },
@@ -684,7 +684,7 @@ const SalesSettings = ({ onLogout }) => {
 
   const saveProfile = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/user/profile', {
+      const res = await fetch(`${API_BASE_URL}/api/user/profile`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, ...profile })
@@ -715,7 +715,7 @@ const SalesSettings = ({ onLogout }) => {
     }
 
     try {
-      const res = await fetch('http://localhost:5000/api/user/password', {
+      const res = await fetch(`${API_BASE_URL}/api/user/password`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, currentPassword, newPassword })

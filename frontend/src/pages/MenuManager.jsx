@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Plus, Edit, Trash2, Search, X, Image as ImageIcon, Upload, RefreshCw } from 'lucide-react';
-import { api, socket } from '../api';
+import { api, socket, API_BASE_URL } from '../api';
 
 const MenuManager = () => {
   const role = localStorage.getItem('role') || 'sales';
@@ -176,7 +176,7 @@ const MenuManager = () => {
     try {
       const res = await api.uploadImage(file);
       if (res.success && res.url) {
-        setFormData({ ...formData, image_url: `http://localhost:5000${res.url}` });
+        setFormData({ ...formData, image_url: `${API_BASE_URL}${res.url}` });
         setIsImageModalOpen(false);
       }
     } catch (err) {
