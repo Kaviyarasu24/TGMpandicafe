@@ -246,66 +246,7 @@ const Settings = () => {
 
       <div style={{ maxWidth: '800px', margin: '2rem auto', padding: '0 1rem', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
         
-        {/* General Settings */}
-        <section className="card" style={{ padding: '2rem', borderRadius: '12px', boxShadow: 'var(--shadow-sm)' }}>
-          <SectionHeader {...SETTINGS_SECTIONS.find(s => s.id === 'general')} />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Language</label>
-              <select name="language" value={settings.language} onChange={handleChange} className="input">
-                <option>English</option>
-                <option>Tamil</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Timezone</label>
-              <select name="timezone" value={settings.timezone} onChange={handleChange} className="input">
-                <option>Asia/Kolkata</option>
-                <option>UTC</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Date Format</label>
-              <select name="dateFormat" value={settings.dateFormat} onChange={handleChange} className="input">
-                <option>DD-MM-YYYY</option>
-                <option>MM-DD-YYYY</option>
-                <option>YYYY-MM-DD</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Time Format</label>
-              <select name="timeFormat" value={settings.timeFormat} onChange={handleChange} className="input">
-                <option>12 Hours</option>
-                <option>24 Hours</option>
-              </select>
-            </div>
-          </div>
-        </section>
 
-        {/* Business Information */}
-        <section className="card" style={{ padding: '2rem', borderRadius: '12px', boxShadow: 'var(--shadow-sm)' }}>
-          <SectionHeader {...SETTINGS_SECTIONS.find(s => s.id === 'business')} />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem' }}>
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Business Name</label>
-              <input type="text" name="shopName" value={settings.shopName} onChange={handleChange} className="input" />
-            </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Address</label>
-              <textarea name="shopAddress" value={settings.shopAddress} onChange={handleChange} className="input" style={{ minHeight: '80px', resize: 'vertical' }} />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Phone Number</label>
-                <input type="text" name="shopPhone" value={settings.shopPhone} onChange={handleChange} className="input" />
-              </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Email</label>
-                <input type="email" name="shopEmail" value={settings.shopEmail} onChange={handleChange} className="input" />
-              </div>
-            </div>
-          </div>
-        </section>
 
         {/* User & Role Management */}
         <section className="card" style={{ padding: '2rem', borderRadius: '12px', boxShadow: 'var(--shadow-sm)' }}>
@@ -412,86 +353,48 @@ const Settings = () => {
           </div>
         </section>
 
-        {/* Notification Settings */}
-        <section className="card" style={{ padding: '2rem', borderRadius: '12px', boxShadow: 'var(--shadow-sm)' }}>
-          <SectionHeader {...SETTINGS_SECTIONS.find(s => s.id === 'notifications')} />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
-              <input type="checkbox" defaultChecked style={{ width: '16px', height: '16px' }} />
-              <span style={{ fontWeight: 500 }}>Browser push notifications for low stock</span>
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
-              <input type="checkbox" style={{ width: '16px', height: '16px' }} />
-              <span style={{ fontWeight: 500 }}>Play sound alert for new online orders</span>
-            </label>
-          </div>
-        </section>
-
         {/* Backup & Restore */}
         <section className="card" style={{ padding: '2rem', borderRadius: '12px', boxShadow: 'var(--shadow-sm)' }}>
           <SectionHeader {...SETTINGS_SECTIONS.find(s => s.id === 'backup')} />
-          <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem', fontSize: '0.9rem' }}>Safely export your entire database (menus, stock, and billing history) to your local device.</p>
-          <div style={{ display: 'flex', gap: '1rem' }}>
-            <button className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} onClick={() => alert('Exporting database... Backup downloaded successfully.')}><Database size={16} /> Export Backup File</button>
-            <button className="btn btn-outline" onClick={() => alert('Please select a valid .sqlite backup file to restore.')}>Restore from File...</button>
+          <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem', fontSize: '0.9rem' }}>Safely export your menu items, billing history, and purchase records to your local device.</p>
+          
+          <div style={{ background: 'var(--bg-surface2)', padding: '1.25rem', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '1.5rem' }}>
+            <h4 style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '1rem', color: 'var(--text)' }}>Download Data by Date Range</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>Start Date</label>
+                <input 
+                  type="date" 
+                  value={backupStartDate} 
+                  onChange={(e) => setBackupStartDate(e.target.value)} 
+                  className="input" 
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>End Date</label>
+                <input 
+                  type="date" 
+                  value={backupEndDate} 
+                  onChange={(e) => setBackupEndDate(e.target.value)} 
+                  className="input" 
+                />
+              </div>
+            </div>
+            <button 
+              className="btn btn-primary premium-hover" 
+              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', justifyContent: 'center', padding: '0.65rem' }} 
+              onClick={handleExportBackup}
+            >
+              <Database size={16} /> Download Backup (Excel)
+            </button>
           </div>
-        </section>
 
-        {/* Appearance */}
-        <section className="card" style={{ padding: '2rem', borderRadius: '12px', boxShadow: 'var(--shadow-sm)' }}>
-          <SectionHeader {...SETTINGS_SECTIONS.find(s => s.id === 'appearance')} />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: '1.25rem' }}>
             <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Theme Mode</label>
-              <select name="theme" value={settings.theme} onChange={handleChange} className="input" style={{ maxWidth: '300px' }}>
-                <option value="light">Light Mode</option>
-                <option value="dark">Dark Mode</option>
-              </select>
+              <h4 style={{ fontWeight: 600, fontSize: '0.95rem', margin: 0, color: 'var(--text)' }}>System Restore</h4>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Restore configuration settings from a previous backup file</span>
             </div>
-          </div>
-        </section>
-
-        {/* Security */}
-        <section className="card" style={{ padding: '2rem', borderRadius: '12px', boxShadow: 'var(--shadow-sm)' }}>
-          <SectionHeader {...SETTINGS_SECTIONS.find(s => s.id === 'security')} />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem' }}>
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Session Timeout</label>
-              <select name="sessionTimeout" value={settings.sessionTimeout} onChange={handleChange} className="input" style={{ maxWidth: '300px' }}>
-                <option>15 Minutes</option>
-                <option>30 Minutes</option>
-                <option>1 Hour</option>
-                <option>Never</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Require PIN for Checkout</label>
-              <select name="requirePinCheckout" value={settings.requirePinCheckout} onChange={handleChange} className="input" style={{ maxWidth: '300px' }}>
-                <option>Disabled</option>
-                <option>Enabled for all</option>
-              </select>
-            </div>
-            <div>
-              <button className="btn btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} onClick={() => alert('A password reset link has been sent to the registered admin email.')}><Shield size={16} /> Change Admin Password</button>
-            </div>
-          </div>
-        </section>
-
-        {/* About */}
-        <section className="card" style={{ padding: '2rem', borderRadius: '12px', boxShadow: 'var(--shadow-sm)' }}>
-          <SectionHeader {...SETTINGS_SECTIONS.find(s => s.id === 'about')} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-            <div style={{ width: '64px', height: '64px', background: 'var(--primary-glow)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Store size={32} color="var(--primary)" />
-            </div>
-            <div>
-              <h4 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text)', margin: '0 0 0.25rem 0' }}>TGM POS System</h4>
-              <p style={{ color: 'var(--text-muted)', margin: 0, fontSize: '0.9rem' }}>Version 2.4.0 (Build 2026-08)</p>
-            </div>
-          </div>
-          <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'var(--bg-surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-            <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', margin: 0 }}>Designed exclusively for TGM Pandi Cafe. Engineered for high performance, reliability, and seamless inventory management.</p>
-            <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', margin: '0.5rem 0 0 0' }}>© 2026 TGM Operations. All rights reserved.</p>
+            <button className="btn btn-outline" onClick={() => alert('Please select a valid backup spreadsheet to restore system data.')}>Restore Data...</button>
           </div>
         </section>
 
