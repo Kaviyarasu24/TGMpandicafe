@@ -413,7 +413,7 @@ app.delete('/api/users/:id', async (req, res) => {
 const distDir = path.join(process.cwd(), '../frontend/dist');
 if (fs.existsSync(distDir)) {
   app.use(express.static(distDir));
-  app.get('*', (req, res, next) => {
+  app.get('*any', (req, res, next) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
       return next();
     }

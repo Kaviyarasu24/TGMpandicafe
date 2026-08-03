@@ -52,6 +52,7 @@ const Billing = () => {
   const [isCheckoutOpen, setIsCheckoutOpen]   = useState(false);
   const [paymentMethod, setPaymentMethod]     = useState('Cash');
   const [mobileView, setMobileView]           = useState('menu'); // 'menu' or 'cart'
+  const [isCheckingOut, setIsCheckingOut]     = useState(false);
 
   const location = useLocation();
   const navigate  = useNavigate();
@@ -169,7 +170,8 @@ const Billing = () => {
   const total    = subtotal;
 
   const handleCheckout = async () => {
-    if (!cart.length) return;
+    if (!cart.length || isCheckingOut) return;
+    setIsCheckingOut(true);
     const billData = {
       id: editingBillId,
       date: new Date().toISOString().split('T')[0],
@@ -194,7 +196,9 @@ const Billing = () => {
       }
     } catch (e) { 
       console.error(e); 
-      alert('Checkout failed: ' + (e.message || 'Check your internet or Supabase key')); 
+      alert('Checkout failed: ' + (e.message || 'Check your internet or database connection')); 
+    } finally {
+      setIsCheckingOut(false);
     }
   };
 
@@ -489,9 +493,14 @@ const Billing = () => {
             </div>
 
             <div style={{ display:'flex', gap:'1rem' }}>
-              <button className="btn btn-outline" style={{ flex:1 }} onClick={() => setIsCheckoutOpen(false)}>Cancel</button>
-              <button className="btn btn-primary" style={{ flex:2 }} onClick={handleCheckout}>
-                {editingBillId ? 'Update Bill' : 'Confirm Payment'}
+              <button className="btn btn-outline" style={{ flex:1 }} onClick={() => setIsCheckoutOpen(false)} disabled={isCheckingOut}>Cancel</button>
+              <button 
+                className="btn btn-primary" 
+                style={{ flex:2, opacity: isCheckingOut ? 0.7 : 1, cursor: isCheckingOut ? 'not-allowed' : 'pointer' }} 
+                onClick={handleCheckout}
+                disabled={isCheckingOut}
+              >
+                {isCheckingOut ? 'Processing...' : (editingBillId ? 'Update Bill' : 'Confirm Payment')}
               </button>
             </div>
           </div>

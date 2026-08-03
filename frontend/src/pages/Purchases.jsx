@@ -12,6 +12,7 @@ const Purchases = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -86,6 +87,8 @@ const Purchases = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSaving) return;
+    setIsSaving(true);
     const purchaseData = {
       ...formData,
       quantity: parseFloat(formData.quantity),
@@ -103,6 +106,8 @@ const Purchases = () => {
       closeModal();
     } catch (err) {
       console.error("Failed to save purchase", err);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -399,8 +404,10 @@ const Purchases = () => {
                 )}
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
-                  <button type="button" className="btn btn-outline" onClick={closeModal} style={{ flex: 1 }}>Cancel</button>
-                  <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>{editingItem ? 'Update Record' : 'Save Record'}</button>
+                  <button type="button" className="btn btn-outline" onClick={closeModal} style={{ flex: 1 }} disabled={isSaving}>Cancel</button>
+                  <button type="submit" className="btn btn-primary" style={{ flex: 1, opacity: isSaving ? 0.7 : 1, cursor: isSaving ? 'not-allowed' : 'pointer' }} disabled={isSaving}>
+                    {isSaving ? 'Saving...' : (editingItem ? 'Update Record' : 'Save Record')}
+                  </button>
                 </div>
               </form>
             </div>
