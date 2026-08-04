@@ -75,14 +75,24 @@ const Login = () => {
           <div style={{ 
             width: '64px', 
             height: '64px', 
-            backgroundColor: 'rgba(16, 185, 129, 0.1)', 
             borderRadius: '16px', 
             display: 'flex', 
             alignItems: 'center', 
             justifyContent: 'center',
-            margin: '0 auto 24px auto'
+            margin: '0 auto 24px auto',
+            overflow: 'hidden',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
+            border: '1px solid #E2E8F0'
           }}>
-            <Shield size={32} color="#10B981" />
+            <img 
+              src="/logo.jpg" 
+              alt="TGM Pandi Cafe Logo" 
+              style={{ 
+                width: '100%', 
+                height: '100%', 
+                objectFit: 'cover' 
+              }} 
+            />
           </div>
           <h2 style={{ fontSize: '28px', fontWeight: 800, color: '#0F172A', margin: '0 0 8px 0', letterSpacing: '-0.02em' }}>
             TGM PANDI CAFE
