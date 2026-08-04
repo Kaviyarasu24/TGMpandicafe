@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, Lock, Eye, EyeOff, Shield, Users } from 'lucide-react';
-import { API_BASE_URL } from '../api';
+import { apiInstance } from '../api';
+import { useAuth } from '../context/AuthContext';
 
 const Login = () => {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [role, setRole] = useState('admin');
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('password');
@@ -30,25 +32,18 @@ const Login = () => {
     setError('');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-      });
+      const response = await apiInstance.post('/api/auth/login', { username, password });
+      const data = response.data;
       
-      const data = await response.json();
-      
-      if (response.ok && data.success) {
-        localStorage.setItem('role', data.user.role);
-        localStorage.setItem('username', data.user.username);
-        localStorage.setItem('full_name', data.user.full_name || '');
+      if (data.success) {
+        login(data.user, data.token);
         navigate('/');
       } else {
         setError(data.error || 'Invalid username or password. Please try again.');
         setIsLoading(false);
       }
     } catch (err) {
-      setError('Connection error. Is the server running?');
+      setError(err.response?.data?.error || 'Connection error. Is the server running?');
       setIsLoading(false);
     }
   };

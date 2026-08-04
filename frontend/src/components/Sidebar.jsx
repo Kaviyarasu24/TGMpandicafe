@@ -6,25 +6,21 @@ import {
   MessageSquare, Users, BarChart2, Settings, LogOut, Hexagon, BrainCircuit
 } from 'lucide-react';
 
+import { useAuth } from '../context/AuthContext';
+
 const Sidebar = () => {
   const navigate = useNavigate();
-  const role = localStorage.getItem('role') || 'sales';
+  const { logout, user } = useAuth();
+  
+  const role = user?.role || 'sales';
   const isAdmin = role === 'admin';
-  const [fullName, setFullName] = useState(localStorage.getItem('full_name') || (isAdmin ? 'Admin User' : 'Sales Staff'));
-
-  useEffect(() => {
-    const handleProfileUpdate = () => {
-      setFullName(localStorage.getItem('full_name') || (isAdmin ? 'Admin User' : 'Sales Staff'));
-    };
-    window.addEventListener('profile-updated', handleProfileUpdate);
-    return () => window.removeEventListener('profile-updated', handleProfileUpdate);
-  }, [isAdmin]);
+  const fullName = user?.full_name || (isAdmin ? 'Admin User' : 'Sales Staff');
 
   const avatarName = encodeURIComponent(fullName);
 
   const handleLogout = (e) => {
     e.preventDefault();
-    localStorage.removeItem('role');
+    logout();
     navigate('/login');
   };
 

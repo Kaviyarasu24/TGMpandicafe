@@ -11,20 +11,9 @@ import Login from './pages/Login';
 import Reports from './pages/Reports';
 import AIAnalytics from './pages/AIAnalytics';
 import Settings from './pages/Settings';
-
-const ProtectedRoute = ({ children, requireAdmin = false }) => {
-  const role = localStorage.getItem('role');
-  
-  if (!role) {
-    return <Navigate to="/login" replace />;
-  }
-  
-  if (requireAdmin && role !== 'admin') {
-    return <Navigate to="/" replace />;
-  }
-  
-  return children;
-};
+import ProtectedRoute from './components/ProtectedRoute';
+import PublicRoute from './components/PublicRoute';
+import { AuthProvider } from './context/AuthContext';
 
 function AppContent() {
   const location = useLocation();
@@ -33,7 +22,11 @@ function AppContent() {
   if (isLogin) {
     return (
       <Routes>
-        <Route path="/login" element={<Login />} />
+        <Route path="/login" element={
+          <PublicRoute>
+            <Login />
+          </PublicRoute>
+        } />
       </Routes>
     );
   }
@@ -45,7 +38,13 @@ function AppContent() {
         <Header />
         <div className="page-container">
           <Routes>
+            {/* Core POS Routes */}
             <Route path="/" element={
+              <ProtectedRoute>
+                <Dashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/dashboard" element={
               <ProtectedRoute>
                 <Dashboard />
               </ProtectedRoute>
@@ -63,6 +62,32 @@ function AppContent() {
             <Route path="/history" element={
               <ProtectedRoute>
                 <History />
+              </ProtectedRoute>
+            } />
+            <Route path="/orders" element={
+              <ProtectedRoute>
+                <History /> {/* Map orders route to existing History page */}
+              </ProtectedRoute>
+            } />
+            
+            {/* Customer route placeholder */}
+            <Route path="/customers" element={
+              <ProtectedRoute>
+                <div style={{
+                  padding: '2.5rem',
+                  backgroundColor: 'var(--bg-surface)',
+                  borderRadius: '16px',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text)',
+                  fontFamily: "'Inter', sans-serif"
+                }}>
+                  <h2 style={{ fontSize: '1.75rem', fontWeight: 800, marginBottom: '0.5rem', color: 'var(--text)' }}>
+                    Customers Management
+                  </h2>
+                  <p style={{ color: 'var(--text-light)', margin: 0 }}>
+                    This module is currently under development. Here you will be able to manage customer profiles, loyalty programs, and dining histories.
+                  </p>
+                </div>
               </ProtectedRoute>
             } />
             
@@ -98,7 +123,11 @@ function AppContent() {
 }
 
 function App() {
-  return <AppContent />;
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
+  );
 }
 
 export default App;

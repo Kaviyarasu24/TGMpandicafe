@@ -1,4 +1,5 @@
 import { io } from 'socket.io-client';
+import axios from 'axios';
 
 export const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || (
   typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
@@ -8,6 +9,44 @@ export const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || (
 
 // Initialize socket.io-client for real-time synchronization
 export const socket = io(API_BASE_URL);
+
+// Create Axios Instance
+export const apiInstance = axios.create({
+  baseURL: API_BASE_URL,
+});
+
+// Request Interceptor: Attach token if it exists
+apiInstance.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+// Response Interceptor: Handle 401/403 errors globally
+apiInstance.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('role');
+      localStorage.removeItem('username');
+      localStorage.removeItem('full_name');
+      
+      // Dispatch event for reactive UI updates
+      window.dispatchEvent(new Event('auth-logout'));
+      
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 const sortMenuItems = (items) => {
   if (!Array.isArray(items)) return items;
@@ -39,191 +78,131 @@ const sortMenuItems = (items) => {
 };
 
 export const api = {
+  // --- AUTH & VALIDATION ---
+  verifyToken: async (token) => {
+    const res = await apiInstance.get('/api/auth/verify', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return res.data;
+  },
+
   // --- MENU ---
   getMenu: async () => {
-    const res = await fetch(`${API_BASE_URL}/api/menu`);
-    if (!res.ok) throw new Error('Failed to fetch menu');
-    const data = await res.json();
-    return sortMenuItems(data);
+    const res = await apiInstance.get('/api/menu');
+    return sortMenuItems(res.data);
   },
   addMenuItem: async (item) => {
-    const res = await fetch(`${API_BASE_URL}/api/menu`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: item.name,
-        category: item.category,
-        price: parseFloat(item.price),
-        stock_count: parseInt(item.stock_count) || 0,
-        min_stock: parseInt(item.min_stock) || 10,
-        image_url: item.image_url || null
-      })
+    const res = await apiInstance.post('/api/menu', {
+      name: item.name,
+      category: item.category,
+      price: parseFloat(item.price),
+      stock_count: parseInt(item.stock_count) || 0,
+      min_stock: parseInt(item.min_stock) || 10,
+      image_url: item.image_url || null
     });
-    if (!res.ok) throw new Error('Failed to add menu item');
-    return await res.json();
+    return res.data;
   },
   updateMenuItem: async (item) => {
-    const res = await fetch(`${API_BASE_URL}/api/menu/${item.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: item.id,
-        name: item.name,
-        category: item.category,
-        price: parseFloat(item.price),
-        stock_count: parseInt(item.stock_count) || 0,
-        min_stock: parseInt(item.min_stock) || 10,
-        image_url: item.image_url || null
-      })
+    const res = await apiInstance.put(`/api/menu/${item.id}`, {
+      id: item.id,
+      name: item.name,
+      category: item.category,
+      price: parseFloat(item.price),
+      stock_count: parseInt(item.stock_count) || 0,
+      min_stock: parseInt(item.min_stock) || 10,
+      image_url: item.image_url || null
     });
-    if (!res.ok) throw new Error('Failed to update menu item');
-    return await res.json();
+    return res.data;
   },
   deleteMenuItem: async (id) => {
-    const res = await fetch(`${API_BASE_URL}/api/menu/${id}`, {
-      method: 'DELETE'
-    });
-    if (!res.ok) throw new Error('Failed to delete menu item');
-    return await res.json();
+    const res = await apiInstance.delete(`/api/menu/${id}`);
+    return res.data;
   },
   
   // --- BILLING ---
   createBill: async (billData) => {
-    const res = await fetch(`${API_BASE_URL}/api/bills`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(billData)
-    });
-    if (!res.ok) throw new Error('Failed to create bill');
-    return await res.json();
+    const res = await apiInstance.post('/api/bills', billData);
+    return res.data;
   },
   getBills: async () => {
-    const res = await fetch(`${API_BASE_URL}/api/bills`);
-    if (!res.ok) throw new Error('Failed to fetch bills');
-    return await res.json();
+    const res = await apiInstance.get('/api/bills');
+    return res.data;
   },
   updateBill: async (billData) => {
-    const res = await fetch(`${API_BASE_URL}/api/bills/${billData.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(billData)
-    });
-    if (!res.ok) throw new Error('Failed to update bill');
-    return await res.json();
+    const res = await apiInstance.put(`/api/bills/${billData.id}`, billData);
+    return res.data;
   },
   deleteBill: async (id) => {
-    const res = await fetch(`${API_BASE_URL}/api/bills/${id}`, {
-      method: 'DELETE'
-    });
-    if (!res.ok) throw new Error('Failed to delete bill');
-    return await res.json();
+    const res = await apiInstance.delete(`/api/bills/${id}`);
+    return res.data;
   },
   
   getDashboardStats: async () => {
-    const res = await fetch(`${API_BASE_URL}/api/stats`);
-    if (!res.ok) throw new Error('Failed to fetch stats');
-    return await res.json();
+    const res = await apiInstance.get('/api/stats');
+    return res.data;
   },
   
   // --- PURCHASES ---
   getPurchases: async () => {
-    const res = await fetch(`${API_BASE_URL}/api/purchases`);
-    if (!res.ok) throw new Error('Failed to fetch purchases');
-    return await res.json();
+    const res = await apiInstance.get('/api/purchases');
+    return res.data;
   },
   addPurchaseItem: async (item) => {
-    const res = await fetch(`${API_BASE_URL}/api/purchases`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(item)
-    });
-    if (!res.ok) throw new Error('Failed to add purchase');
-    return await res.json();
+    const res = await apiInstance.post('/api/purchases', item);
+    return res.data;
   },
   updatePurchaseItem: async (item) => {
-    const res = await fetch(`${API_BASE_URL}/api/purchases/${item.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(item)
-    });
-    if (!res.ok) throw new Error('Failed to update purchase');
-    return await res.json();
+    const res = await apiInstance.put(`/api/purchases/${item.id}`, item);
+    return res.data;
   },
   deletePurchaseItem: async (id) => {
-    const res = await fetch(`${API_BASE_URL}/api/purchases/${id}`, {
-      method: 'DELETE'
-    });
-    if (!res.ok) throw new Error('Failed to delete purchase');
-    return await res.json();
+    const res = await apiInstance.delete(`/api/purchases/${id}`);
+    return res.data;
   },
   
   // --- CATEGORIES ---
   getCategories: async () => {
-    const res = await fetch(`${API_BASE_URL}/api/categories`);
-    if (!res.ok) throw new Error('Failed to fetch categories');
-    return await res.json();
+    const res = await apiInstance.get('/api/categories');
+    return res.data;
   },
   addCategory: async (cat) => {
-    const res = await fetch(`${API_BASE_URL}/api/categories`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(cat)
-    });
-    if (!res.ok) throw new Error('Failed to add category');
-    return await res.json();
+    const res = await apiInstance.post('/api/categories', cat);
+    return res.data;
   },
   deleteCategory: async (id) => {
-    const res = await fetch(`${API_BASE_URL}/api/categories/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Failed to delete category');
-    return await res.json();
+    const res = await apiInstance.delete(`/api/categories/${id}`);
+    return res.data;
   },
   
   // --- IMAGES ---
   searchImages: async (query) => {
-    const res = await fetch(`${API_BASE_URL}/api/images/search?q=${encodeURIComponent(query)}`);
-    if (!res.ok) throw new Error('Failed to fetch images');
-    return await res.json();
+    const res = await apiInstance.get(`/api/images/search?q=${encodeURIComponent(query)}`);
+    return res.data;
   },
   uploadImage: async (file) => {
     const formData = new FormData();
     formData.append('image', file);
-    const res = await fetch(`${API_BASE_URL}/api/images/upload`, {
-      method: 'POST',
-      body: formData
+    const res = await apiInstance.post('/api/images/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
     });
-    if (!res.ok) throw new Error('Failed to upload image');
-    return await res.json();
+    return res.data;
   },
   
   // --- USERS ---
   getUsers: async () => {
-    const res = await fetch(`${API_BASE_URL}/api/users`);
-    if (!res.ok) throw new Error('Failed to fetch users');
-    return await res.json();
+    const res = await apiInstance.get('/api/users');
+    return res.data;
   },
   addUser: async (user) => {
-    const res = await fetch(`${API_BASE_URL}/api/users`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(user)
-    });
-    if (!res.ok) throw new Error('Failed to add user');
-    return await res.json();
+    const res = await apiInstance.post('/api/users', user);
+    return res.data;
   },
   updateUser: async (user) => {
-    const res = await fetch(`${API_BASE_URL}/api/users/${user.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(user)
-    });
-    if (!res.ok) throw new Error('Failed to update user');
-    return await res.json();
+    const res = await apiInstance.put(`/api/users/${user.id}`, user);
+    return res.data;
   },
   deleteUser: async (id) => {
-    const res = await fetch(`${API_BASE_URL}/api/users/${id}`, {
-      method: 'DELETE'
-    });
-    if (!res.ok) throw new Error('Failed to delete user');
-    return await res.json();
+    const res = await apiInstance.delete(`/api/users/${id}`);
+    return res.data;
   }
 };

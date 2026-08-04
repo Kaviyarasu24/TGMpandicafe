@@ -6,7 +6,8 @@ import {
   Save, RotateCcw, Check, User, Lock, LogOut, Eye, EyeOff
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { api, API_BASE_URL } from '../api';
+import { api, API_BASE_URL, apiInstance } from '../api';
+import { useAuth } from '../context/AuthContext';
 
 const SETTINGS_SECTIONS = [
   { id: 'users', title: 'User & Role Management', desc: 'Manage staff accounts and permissions', icon: Users },
@@ -44,6 +45,7 @@ const defaultSettings = {
 };
 
 const Settings = () => {
+  const { user, logout } = useAuth();
   const [saved, setSaved] = useState(false);
   
   const [settings, setSettings] = useState(() => {
@@ -229,7 +231,7 @@ const Settings = () => {
   };
 
   const handleUserDelete = async (user) => {
-    const currentAdminUser = localStorage.getItem('username');
+    const currentAdminUser = user?.username;
     if (user.username === currentAdminUser) {
       alert("You cannot delete your own logged-in account!");
       return;
@@ -280,13 +282,11 @@ const Settings = () => {
     </div>
   );
 
-  const role = localStorage.getItem('role') || 'sales';
+  const role = user?.role || 'sales';
   const navigate = useNavigate();
 
   const handleLogout = () => {
-    localStorage.removeItem('role');
-    localStorage.removeItem('username');
-    localStorage.removeItem('full_name');
+    logout();
     navigate('/login');
   };
 
@@ -654,6 +654,7 @@ const Settings = () => {
 };
 
 const SalesSettings = ({ onLogout }) => {
+  const { user } = useAuth();
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
   const [profile, setProfile] = useState({ full_name: '', email: '', mobile: '' });
   const [passwords, setPasswords] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
@@ -661,11 +662,17 @@ const SalesSettings = ({ onLogout }) => {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
-  const username = localStorage.getItem('username');
+  const username = user?.username || '';
 
   useEffect(() => {
-    setProfile(prev => ({ ...prev, full_name: localStorage.getItem('full_name') || '' }));
-  }, []);
+    if (user) {
+      setProfile({
+        full_name: user.full_name || '',
+        email: user.email || '',
+        mobile: user.mobile || ''
+      });
+    }
+  }, [user]);
 
   const handleThemeChange = (e) => {
     const newTheme = e.target.value;
@@ -684,12 +691,8 @@ const SalesSettings = ({ onLogout }) => {
 
   const saveProfile = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/user/profile`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, ...profile })
-      });
-      if (res.ok) {
+      const res = await apiInstance.put('/api/user/profile', { username, ...profile });
+      if (res.data.success) {
         localStorage.setItem('full_name', profile.full_name);
         window.dispatchEvent(new Event('profile-updated'));
         setSaved(true);
@@ -715,20 +718,15 @@ const SalesSettings = ({ onLogout }) => {
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/user/password`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, currentPassword, newPassword })
-      });
-      const data = await res.json();
-      if (data.success) {
+      const res = await apiInstance.put('/api/user/password', { username, currentPassword, newPassword });
+      if (res.data.success) {
         setSuccessMsg('Password changed successfully. Please log in again.');
         setTimeout(() => onLogout(), 2000);
       } else {
-        setError(data.error);
+        setError(res.data.error);
       }
     } catch (err) {
-      setError('Connection error');
+      setError(err.response?.data?.error || 'Connection error');
     }
   };
 

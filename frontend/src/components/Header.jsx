@@ -2,23 +2,22 @@ import React, { useState, useEffect } from 'react';
 import { Search, Sun, Moon, Bell } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
+import { useAuth } from '../context/AuthContext';
+
 const Header = () => {
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
-  const [fullName, setFullName] = useState(localStorage.getItem('full_name') || 'Admin User');
+  const { user } = useAuth();
+  
+  const role = user?.role || 'sales';
+  const isAdmin = role === 'admin';
+  const fullName = user?.full_name || (isAdmin ? 'Admin User' : 'Sales Staff');
+  
   const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
-
-  useEffect(() => {
-    const handleProfileUpdate = () => {
-      setFullName(localStorage.getItem('full_name') || 'Admin User');
-    };
-    window.addEventListener('profile-updated', handleProfileUpdate);
-    return () => window.removeEventListener('profile-updated', handleProfileUpdate);
-  }, []);
 
   const avatarName = encodeURIComponent(fullName);
 

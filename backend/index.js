@@ -3,6 +3,7 @@ import cors from 'cors';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import * as db from './database.js';
 import multer from 'multer';
 import path from 'path';
@@ -56,6 +57,32 @@ io.on('connection', (socket) => {
 const broadcastUpdate = (action) => {
   io.emit('database_update', { action, timestamp: Date.now() });
 };
+
+// JWT Authentication Middleware
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET || 'your-default-jwt-secret-key-change-in-production', (err, decoded) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+    req.user = decoded;
+    next();
+  });
+};
+
+// Apply JWT verification globally to all /api routes except login
+app.use('/api', (req, res, next) => {
+  if (req.path === '/auth/login' || req.path === '/auth/login/') {
+    return next();
+  }
+  authenticateToken(req, res, next);
+});
 
 // --- IMAGES API ---
 app.post('/api/images/upload', upload.single('image'), (req, res) => {
@@ -146,8 +173,22 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid username or password' });
     }
 
+    const token = jwt.sign(
+      {
+        username: user.username,
+        role: user.role,
+        full_name: user.full_name,
+        email: user.email,
+        mobile: user.mobile,
+        theme: user.theme
+      },
+      process.env.JWT_SECRET || 'your-default-jwt-secret-key-change-in-production',
+      { expiresIn: '24h' }
+    );
+
     res.json({
       success: true,
+      token,
       user: {
         username: user.username,
         role: user.role,
@@ -160,6 +201,13 @@ app.post('/api/auth/login', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+app.get('/api/auth/verify', (req, res) => {
+  res.json({
+    success: true,
+    user: req.user
+  });
 });
 
 app.put('/api/user/password', async (req, res) => {
