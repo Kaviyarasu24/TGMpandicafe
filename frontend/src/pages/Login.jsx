@@ -8,21 +8,16 @@ const Login = () => {
   const navigate = useNavigate();
   const { login } = useAuth();
   const [role, setRole] = useState('admin');
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('password');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   const handleRoleChange = (selectedRole) => {
     setRole(selectedRole);
-    if (selectedRole === 'admin') {
-      setUsername('admin');
-      setPassword('password'); // Hardcoded default for ease of testing
-    } else {
-      setUsername('sales');
-      setPassword('password'); // Hardcoded default for ease of testing
-    }
+    setUsername('');
+    setPassword('');
     setError('');
   };
 
