@@ -4,11 +4,21 @@ import bcrypt from 'bcryptjs';
 
 dotenv.config();
 
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  console.error('[FATAL] DATABASE_URL environment variable is not set. The backend cannot connect to PostgreSQL. Exiting.');
+  process.exit(1);
+}
+
 // Automatically parse DECIMAL/NUMERIC fields (OID 1700) as floats
 pg.types.setTypeParser(1700, (val) => parseFloat(val));
 
-const connectionString = process.env.DATABASE_URL;
-const cleanConnectionString = connectionString ? connectionString.split('?')[0] : '';
+// Round a monetary value to 2 decimal places (paise precision) on write, so
+// float arithmetic (e.g. weight-based price * kg) can't persist long decimal tails.
+// The +EPSILON nudge avoids classic 1.005 -> 1.00 rounding errors.
+const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+
+const cleanConnectionString = connectionString.split('?')[0];
 
 const pool = new pg.Pool({
   connectionString: cleanConnectionString,
@@ -103,6 +113,32 @@ const createTables = async () => {
     theme VARCHAR(50) DEFAULT 'light'
   )`);
 
+  // Audit Logs Table — records who did what, for accountability
+  await pool.query(`CREATE TABLE IF NOT EXISTS audit_logs (
+    id SERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    username VARCHAR(255),
+    role VARCHAR(50),
+    action VARCHAR(100) NOT NULL,
+    entity VARCHAR(100) NOT NULL,
+    entity_id VARCHAR(100),
+    details TEXT
+  )`);
+
+  // Held / Parked Orders Table — cashier can save a cart and resume later
+  await pool.query(`CREATE TABLE IF NOT EXISTS held_orders (
+    id SERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    label VARCHAR(255) NOT NULL,
+    created_by VARCHAR(255),
+    cart_data JSONB NOT NULL
+  )`);
+
+  // Idempotent migration: add a status column to bills for void support.
+  // Existing rows default to 'completed' so current behavior is unchanged.
+  await pool.query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS status VARCHAR(50) NOT NULL DEFAULT 'completed'`);
+  await pool.query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS void_reason TEXT`);
+
   // Seed default categories using ON CONFLICT DO NOTHING
   const defaultCats = [
     { name: 'Hot Drinks', pricing: 'fixed', unit: null },
@@ -194,90 +230,126 @@ export const deleteMenuItem = async (id) => {
 // --- BILLING OPERATIONS ---
 
 export const createBill = async (billData) => {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  // Retry the whole transaction on a bill_number unique-violation (23505),
+  // which can happen if two bills are created concurrently and compute the
+  // same daily sequence. A short retry recomputes the next free number.
+  const MAX_ATTEMPTS = 5;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-    const dateStr = billData.date.replace(/-/g, '');
-    const datePrefix = `${dateStr}-%`;
+      const dateStr = billData.date.replace(/-/g, '');
+      const datePrefix = `${dateStr}-%`;
 
-    // Calculate max daily sequence number from bills
-    const maxBillRes = await client.query(
-      `SELECT MAX(CAST(SUBSTR(bill_number, 13) AS INTEGER)) as max_num FROM bills WHERE bill_number LIKE $1`,
-      [`BL-${datePrefix}`]
-    );
-
-    // Calculate max daily sequence number from deleted bills in inventory_logs
-    const maxLogRes = await client.query(
-      `SELECT MAX(CAST(SUBSTR(bill_number, 13) AS INTEGER)) as max_num FROM inventory_logs WHERE bill_number LIKE $1 AND action = 'Bill Deleted'`,
-      [`BL-${datePrefix}`]
-    );
-
-    const maxFromBills = maxBillRes.rows[0]?.max_num || 0;
-    const maxFromLogs = maxLogRes.rows[0]?.max_num || 0;
-    const nextSequence = Math.max(maxFromBills, maxFromLogs, 0) + 1;
-
-    const finalBillNumber = `BL-${dateStr}-${nextSequence.toString().padStart(4, '0')}`;
-
-    const billInsert = await client.query(
-      `INSERT INTO bills (bill_number, date_time, subtotal, tax, total, payment_method) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      [finalBillNumber, `${billData.date}T${billData.time}`, billData.subtotal, billData.tax, billData.total, billData.payment_method]
-    );
-    const billId = billInsert.rows[0].id;
-
-    for (const item of billData.items) {
-      await client.query(
-        `INSERT INTO bill_items (bill_id, item_id, item_name, quantity, price, total) VALUES ($1, $2, $3, $4, $5, $6)`,
-        [billId, item.id, item.name, item.quantity, item.price, item.quantity * item.price]
+      // Calculate max daily sequence number from bills
+      const maxBillRes = await client.query(
+        `SELECT MAX(CAST(SUBSTR(bill_number, 13) AS INTEGER)) as max_num FROM bills WHERE bill_number LIKE $1`,
+        [`BL-${datePrefix}`]
       );
 
-      await client.query(
-        `UPDATE menu SET stock_count = stock_count - $1 WHERE id = $2`,
-        [item.quantity, item.id]
+      // Calculate max daily sequence number from deleted bills in inventory_logs
+      const maxLogRes = await client.query(
+        `SELECT MAX(CAST(SUBSTR(bill_number, 13) AS INTEGER)) as max_num FROM inventory_logs WHERE bill_number LIKE $1 AND action = 'Bill Deleted'`,
+        [`BL-${datePrefix}`]
       );
+
+      const maxFromBills = maxBillRes.rows[0]?.max_num || 0;
+      const maxFromLogs = maxLogRes.rows[0]?.max_num || 0;
+      const nextSequence = Math.max(maxFromBills, maxFromLogs, 0) + attempt;
+
+      const finalBillNumber = `BL-${dateStr}-${nextSequence.toString().padStart(4, '0')}`;
+
+      const billInsert = await client.query(
+        `INSERT INTO bills (bill_number, date_time, subtotal, tax, total, payment_method) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+        [finalBillNumber, `${billData.date}T${billData.time}`, round2(billData.subtotal), round2(billData.tax), round2(billData.total), billData.payment_method]
+      );
+      const billId = billInsert.rows[0].id;
+
+      for (const item of billData.items) {
+        await client.query(
+          `INSERT INTO bill_items (bill_id, item_id, item_name, quantity, price, total) VALUES ($1, $2, $3, $4, $5, $6)`,
+          [billId, item.id, item.name, item.quantity, item.price, round2(item.quantity * item.price)]
+        );
+
+        await client.query(
+          `UPDATE menu SET stock_count = stock_count - $1 WHERE id = $2`,
+          [item.quantity, item.id]
+        );
+      }
+
+      await client.query('COMMIT');
+      return { success: true, billNumber: finalBillNumber };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      // 23505 = unique_violation. Retry with a bumped sequence if attempts remain.
+      if (err.code === '23505' && attempt < MAX_ATTEMPTS) {
+        continue;
+      }
+      throw err;
+    } finally {
+      client.release();
     }
-
-    await client.query('COMMIT');
-    return { success: true, billNumber: finalBillNumber };
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
   }
+  throw new Error('Failed to generate a unique bill number after multiple attempts.');
 };
 
-export const getBills = async () => {
-  let query = `SELECT id, bill_number, date_time, subtotal, tax, total, payment_method FROM bills ORDER BY date_time DESC`;
-  const bills = await getQuery(query);
-  
-  for (let bill of bills) {
-    const items = await getQuery(`SELECT id, bill_id, item_id, item_name, quantity, price, total FROM bill_items WHERE bill_id = ?`, [bill.id]);
-    bill.items = items;
+export const getBills = async ({ limit = null, offset = 0 } = {}) => {
+  let query = `SELECT id, bill_number, date_time, subtotal, tax, total, payment_method, status, void_reason FROM bills ORDER BY date_time DESC`;
+  const params = [];
+  if (limit != null) {
+    query += ` LIMIT ? OFFSET ?`;
+    params.push(limit, offset);
   }
-  
+  const bills = await getQuery(query, params);
+
+  if (bills.length === 0) return bills;
+
+  // Batch-load all items for these bills in a single query (avoids N+1 queries).
+  const billIds = bills.map((b) => b.id);
+  const placeholders = billIds.map(() => '?').join(', ');
+  const allItems = await getQuery(
+    `SELECT id, bill_id, item_id, item_name, quantity, price, total FROM bill_items WHERE bill_id IN (${placeholders})`,
+    billIds
+  );
+
+  // Group items by bill_id, then attach to each bill (empty array if none).
+  const itemsByBill = new Map();
+  for (const item of allItems) {
+    if (!itemsByBill.has(item.bill_id)) itemsByBill.set(item.bill_id, []);
+    itemsByBill.get(item.bill_id).push(item);
+  }
+  for (const bill of bills) {
+    bill.items = itemsByBill.get(bill.id) || [];
+  }
+
   return bills;
+};
+
+export const getBillsCount = async () => {
+  const row = await getSingleQuery(`SELECT COUNT(*) as count FROM bills`);
+  return parseInt(row?.count || 0, 10);
 };
 
 export const getDashboardStats = async () => {
   const today = new Date().toISOString().split('T')[0];
   const todayPrefix = `${today}%`;
 
-  const totalBillsRow = await getSingleQuery(`SELECT COUNT(*) as count FROM bills WHERE date_time LIKE ?`, [todayPrefix]);
-  const totalSalesRow = await getSingleQuery(`SELECT SUM(total) as sum FROM bills WHERE date_time LIKE ?`, [todayPrefix]);
-  
+  const totalBillsRow = await getSingleQuery(`SELECT COUNT(*) as count FROM bills WHERE date_time LIKE ? AND status != 'voided'`, [todayPrefix]);
+  const totalSalesRow = await getSingleQuery(`SELECT SUM(total) as sum FROM bills WHERE date_time LIKE ? AND status != 'voided'`, [todayPrefix]);
+
   const totalItemsSoldRow = await getSingleQuery(`
-    SELECT SUM(quantity) as sum 
-    FROM bill_items 
-    JOIN bills ON bill_items.bill_id = bills.id 
-    WHERE bills.date_time LIKE ?
+    SELECT SUM(quantity) as sum
+    FROM bill_items
+    JOIN bills ON bill_items.bill_id = bills.id
+    WHERE bills.date_time LIKE ? AND bills.status != 'voided'
   `, [todayPrefix]);
 
   const mostSoldRow = await getSingleQuery(`
-    SELECT item_name, SUM(quantity) as sum 
-    FROM bill_items 
-    JOIN bills ON bill_items.bill_id = bills.id 
-    WHERE bills.date_time LIKE ?
+    SELECT item_name, SUM(quantity) as sum
+    FROM bill_items
+    JOIN bills ON bill_items.bill_id = bills.id
+    WHERE bills.date_time LIKE ? AND bills.status != 'voided'
     GROUP BY item_id, item_name
     ORDER BY sum DESC LIMIT 1
   `, [todayPrefix]);
@@ -358,13 +430,13 @@ export const updateBill = async (billData) => {
 
     await client.query(
       `UPDATE bills SET subtotal = $1, tax = $2, total = $3, payment_method = $4 WHERE id = $5`,
-      [billData.subtotal, billData.tax, billData.total, billData.payment_method, billData.id]
+      [round2(billData.subtotal), round2(billData.tax), round2(billData.total), billData.payment_method, billData.id]
     );
 
     for (const item of billData.items) {
       await client.query(
         `INSERT INTO bill_items (bill_id, item_id, item_name, quantity, price, total) VALUES ($1, $2, $3, $4, $5, $6)`,
-        [billData.id, item.id, item.name, item.quantity, item.price, item.quantity * item.price]
+        [billData.id, item.id, item.name, item.quantity, item.price, round2(item.quantity * item.price)]
       );
 
       await client.query(
@@ -392,14 +464,14 @@ export const getPurchases = async () => {
 export const addPurchaseItem = async (item) => {
   return await runQuery(
     `INSERT INTO purchases (date, description, quantity, price, total, category) VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
-    [item.date, item.description, item.quantity, item.price, item.quantity * item.price, item.category]
+    [item.date, item.description, item.quantity, item.price, round2(item.quantity * item.price), item.category]
   );
 };
 
 export const updatePurchaseItem = async (item) => {
   return await runQuery(
     `UPDATE purchases SET date = ?, description = ?, quantity = ?, price = ?, total = ?, category = ? WHERE id = ?`,
-    [item.date, item.description, item.quantity, item.price, item.quantity * item.price, item.category, item.id]
+    [item.date, item.description, item.quantity, item.price, round2(item.quantity * item.price), item.category, item.id]
   );
 };
 
@@ -463,4 +535,95 @@ export const updateUser = async (id, user) => {
 
 export const deleteUser = async (id) => {
   return await runQuery(`DELETE FROM users WHERE id = ?`, [id]);
+};
+
+// --- AUDIT LOG OPERATIONS ---
+
+export const addAuditLog = async ({ username, role, action, entity, entity_id, details }) => {
+  try {
+    return await runQuery(
+      `INSERT INTO audit_logs (username, role, action, entity, entity_id, details) VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
+      [username || null, role || null, action, entity, entity_id != null ? String(entity_id) : null, details || null]
+    );
+  } catch (err) {
+    // Auditing must never break the primary operation; log and continue.
+    console.error('Failed to write audit log:', err.message);
+    return { id: null };
+  }
+};
+
+export const getAuditLogs = async ({ limit = 100, offset = 0 } = {}) => {
+  return await getQuery(
+    `SELECT id, created_at, username, role, action, entity, entity_id, details FROM audit_logs ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`,
+    [limit, offset]
+  );
+};
+
+// --- HELD / PARKED ORDER OPERATIONS ---
+
+export const getHeldOrders = async () => {
+  return await getQuery(`SELECT id, created_at, label, created_by, cart_data FROM held_orders ORDER BY created_at DESC`);
+};
+
+export const addHeldOrder = async ({ label, created_by, cart_data }) => {
+  return await runQuery(
+    `INSERT INTO held_orders (label, created_by, cart_data) VALUES (?, ?, ?) RETURNING id`,
+    [label, created_by || null, JSON.stringify(cart_data)]
+  );
+};
+
+export const deleteHeldOrder = async (id) => {
+  return await runQuery(`DELETE FROM held_orders WHERE id = ?`, [id]);
+};
+
+// --- VOID BILL OPERATION ---
+// Marks a bill as voided (soft, recoverable trail) and restores stock, instead
+// of hard-deleting. Uses the same inventory_logs trail as deleteBill.
+export const voidBill = async (id, reason) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const billRes = await client.query(`SELECT * FROM bills WHERE id = $1`, [id]);
+    const bill = billRes.rows[0];
+    if (!bill) {
+      throw new Error('Bill not found');
+    }
+    if (bill.status === 'voided') {
+      throw new Error('Bill is already voided');
+    }
+
+    const itemsRes = await client.query(`SELECT * FROM bill_items WHERE bill_id = $1`, [id]);
+    const items = itemsRes.rows;
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0];
+    const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
+
+    for (const item of items) {
+      const menuRes = await client.query(`SELECT stock_count FROM menu WHERE id = $1`, [item.item_id]);
+      const menuRow = menuRes.rows[0];
+      if (menuRow) {
+        const previousStock = menuRow.stock_count;
+        const newStock = previousStock + item.quantity;
+        await client.query(`UPDATE menu SET stock_count = $1 WHERE id = $2`, [newStock, item.item_id]);
+        await client.query(
+          `INSERT INTO inventory_logs (date, time, bill_number, item_name, previous_stock, restored_quantity, updated_stock, action) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [dateStr, timeStr, bill.bill_number, item.item_name, previousStock, item.quantity, newStock, 'Bill Voided']
+        );
+      }
+    }
+
+    await client.query(
+      `UPDATE bills SET status = 'voided', void_reason = $1 WHERE id = $2`,
+      [reason || 'No reason provided', id]
+    );
+
+    await client.query('COMMIT');
+    return { success: true };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 };

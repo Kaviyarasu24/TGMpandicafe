@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, ShoppingCart, Trash2, Plus, Minus, CreditCard, Banknote, Smartphone, Scale, Package, X, Printer } from 'lucide-react';
+import { Search, ShoppingCart, Trash2, Plus, Minus, CreditCard, Banknote, Smartphone, Scale, Package, X, Printer, PauseCircle, Archive } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { api, socket } from '../api';
 
@@ -64,6 +64,11 @@ const Billing = () => {
   const [weightGrams, setWeightGrams] = useState('');
   const [receipt, setReceipt]         = useState(null);
 
+  const [heldOrders, setHeldOrders]     = useState([]);
+  const [isHeldModalOpen, setIsHeldModalOpen] = useState(false);
+  const [holdModalOpen, setHoldModalOpen] = useState(false);
+  const [holdLabel, setHoldLabel]       = useState('');
+
   useEffect(() => {
     loadMenu();
     if (editBill) {
@@ -90,7 +95,14 @@ const Billing = () => {
   };
 
   const categories  = ['Recent', 'All', ...new Set(items.map(i => i.category))].filter((v,i,a)=>a.indexOf(v)===i);
-  
+
+  // Weight-priced items (e.g. Savories) are sold by grams and are not stock-tracked,
+  // so they stay orderable regardless of stock_count. Mirrors the pricing_type check in addToCart.
+  const isSaver = (category) => {
+    const catMeta = categoriesData.find(c => c.name === category);
+    return catMeta?.pricing_type === 'weight';
+  };
+
   let filtered = items.filter(i => {
     if (categoryFilter === 'Recent') {
       const recentOrder = [
@@ -194,11 +206,59 @@ const Billing = () => {
           setReceipt({ billNumber: r.billNumber, items: cart, total, paymentMethod, date: billData.date, time: billData.time });
         }
       }
-    } catch (e) { 
-      console.error(e); 
-      alert('Checkout failed: ' + (e.message || 'Check your internet or database connection')); 
+    } catch (e) {
+      console.error(e);
+      alert('Checkout failed: ' + (e.message || 'Check your internet or database connection'));
     } finally {
       setIsCheckingOut(false);
+    }
+  };
+
+  /* ── Held / parked orders ─ */
+  const loadHeldOrders = async () => {
+    try { setHeldOrders(await api.getHeldOrders()); }
+    catch (e) { console.error('Failed to load held orders', e); }
+  };
+
+  useEffect(() => { loadHeldOrders(); }, []);
+
+  const submitHold = async (e) => {
+    e.preventDefault();
+    if (!cart.length) return;
+    const label = holdLabel.trim() || `Order ${new Date().toLocaleTimeString('en-US', { hour12: false })}`;
+    try {
+      await api.addHeldOrder(label, cart);
+      setCart([]);
+      setHoldModalOpen(false);
+      setHoldLabel('');
+      loadHeldOrders();
+    } catch (err) {
+      console.error('Failed to hold order', err);
+      alert('Failed to hold order: ' + (err?.response?.data?.error || err.message));
+    }
+  };
+
+  const resumeHeldOrder = async (order) => {
+    // Loading a held cart discards the current unsaved cart. Guard if non-empty.
+    if (cart.length && !window.confirm('Resuming will replace your current cart. Continue?')) return;
+    try {
+      setCart(Array.isArray(order.cart_data) ? order.cart_data : []);
+      await api.deleteHeldOrder(order.id);
+      setIsHeldModalOpen(false);
+      loadHeldOrders();
+    } catch (err) {
+      console.error('Failed to resume held order', err);
+      alert('Failed to resume order: ' + (err?.response?.data?.error || err.message));
+    }
+  };
+
+  const deleteHeldOrder = async (id) => {
+    if (!window.confirm('Discard this held order?')) return;
+    try {
+      await api.deleteHeldOrder(id);
+      loadHeldOrders();
+    } catch (err) {
+      console.error('Failed to delete held order', err);
     }
   };
 
@@ -437,10 +497,30 @@ const Billing = () => {
           </div>
 
           {/* Buttons */}
-          <div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
             <button onClick={() => setIsCheckoutOpen(true)} className="premium-btn-gradient" style={{ width: '100%', color: '#fff', border: 'none', padding: '1rem', borderRadius: '12px', fontSize: '1.05rem', fontWeight: 700, cursor: 'pointer' }}>
               Complete Order
             </button>
+            <div style={{ display: 'flex', gap: '0.6rem' }}>
+              <button
+                onClick={() => { if (cart.length) { setHoldLabel(''); setHoldModalOpen(true); } }}
+                disabled={!cart.length}
+                title="Park this cart to serve another customer, then resume it later"
+                style={{ flex: 1, background: 'var(--bg-surface2)', color: 'var(--text)', border: '1px solid var(--border-strong)', padding: '0.7rem', borderRadius: '12px', fontSize: '0.9rem', fontWeight: 600, cursor: cart.length ? 'pointer' : 'not-allowed', opacity: cart.length ? 1 : 0.5, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
+              >
+                <PauseCircle size={16} /> Hold
+              </button>
+              <button
+                onClick={() => { loadHeldOrders(); setIsHeldModalOpen(true); }}
+                title="View and resume held orders"
+                style={{ flex: 1, background: 'var(--bg-surface2)', color: 'var(--text)', border: '1px solid var(--border-strong)', padding: '0.7rem', borderRadius: '12px', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
+              >
+                <Archive size={16} /> Held
+                {heldOrders.length > 0 && (
+                  <span style={{ background: 'var(--primary)', color: '#fff', borderRadius: '999px', fontSize: '0.7rem', fontWeight: 700, padding: '0 6px', minWidth: '18px', textAlign: 'center' }}>{heldOrders.length}</span>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -709,6 +789,81 @@ const Billing = () => {
                 <Printer size={18}/> Print Bill
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── HOLD ORDER MODAL ───────────────────────────── */}
+      {holdModalOpen && (
+        <div style={{ ...S.overlay, zIndex:1100 }} onClick={() => setHoldModalOpen(false)}>
+          <div className="modal-container" style={{ ...S.modal, width:'420px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ textAlign:'center', marginBottom:'1.5rem' }}>
+              <div style={{ width:'60px', height:'60px', background:'var(--bg-surface2)', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 1rem', border:'1px solid var(--border-strong)' }}>
+                <PauseCircle size={28} color="var(--primary)" />
+              </div>
+              <h3 style={{ fontFamily:"'Inter',sans-serif", fontWeight:800, fontSize:'1.4rem', color:'var(--text)' }}>Hold Order</h3>
+              <p style={{ color:'var(--text-muted)', fontSize:'0.9rem', marginTop:'0.35rem' }}>Give this order a label so you can find it later.</p>
+            </div>
+            <form onSubmit={submitHold}>
+              <div style={{ marginBottom:'1.5rem' }}>
+                <label style={{ display:'block', marginBottom:'0.5rem', fontSize:'0.9rem', fontWeight:600, color:'var(--text-muted)' }}>Label (optional)</label>
+                <input
+                  className="input"
+                  type="text"
+                  value={holdLabel}
+                  onChange={e => setHoldLabel(e.target.value)}
+                  placeholder="e.g. Table 4, Ravi, Takeaway"
+                  autoFocus
+                  style={{ fontSize:'1rem' }}
+                />
+              </div>
+              <div style={{ display:'flex', gap:'1rem' }}>
+                <button type="button" className="btn btn-outline" style={{ flex:1 }} onClick={() => setHoldModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" style={{ flex:2 }}>Hold Order</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── HELD ORDERS LIST MODAL ─────────────────────── */}
+      {isHeldModalOpen && (
+        <div style={{ ...S.overlay, zIndex:1100 }} onClick={() => setIsHeldModalOpen(false)}>
+          <div className="modal-container" style={{ ...S.modal, width:'460px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem' }}>
+              <h3 style={{ fontFamily:"'Inter',sans-serif", fontWeight:800, fontSize:'1.4rem', color:'var(--text)', display:'flex', alignItems:'center', gap:'0.5rem' }}>
+                <Archive size={22} color="var(--primary)" /> Held Orders
+              </h3>
+              <button onClick={() => setIsHeldModalOpen(false)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)' }}><X size={22} /></button>
+            </div>
+
+            {heldOrders.length === 0 ? (
+              <div style={{ textAlign:'center', color:'var(--text-muted)', padding:'2.5rem 1rem' }}>No held orders.</div>
+            ) : (
+              <div style={{ display:'flex', flexDirection:'column', gap:'0.6rem', maxHeight:'50vh', overflowY:'auto' }}>
+                {heldOrders.map(order => {
+                  const items = Array.isArray(order.cart_data) ? order.cart_data : [];
+                  const count = items.reduce((s, i) => s + (Number(i.quantity) || 0), 0);
+                  const value = items.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 0), 0);
+                  return (
+                    <div key={order.id} style={{ border:'1px solid var(--border)', borderRadius:'12px', padding:'0.9rem 1rem', background:'var(--bg-surface2)' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.4rem' }}>
+                        <div style={{ fontWeight:700, color:'var(--text)', fontSize:'0.95rem' }}>{order.label}</div>
+                        <div style={{ color:'var(--primary)', fontWeight:700, fontSize:'0.9rem' }}>₹{value.toFixed(2)}</div>
+                      </div>
+                      <div style={{ fontSize:'0.78rem', color:'var(--text-muted)', marginBottom:'0.7rem' }}>
+                        {items.length} line{items.length === 1 ? '' : 's'} · {count} item{count === 1 ? '' : 's'}
+                        {order.created_by ? ` · ${order.created_by}` : ''}
+                      </div>
+                      <div style={{ display:'flex', gap:'0.5rem' }}>
+                        <button className="btn btn-primary" style={{ flex:2, padding:'0.5rem', fontSize:'0.85rem' }} onClick={() => resumeHeldOrder(order)}>Resume</button>
+                        <button className="btn btn-outline" style={{ flex:1, padding:'0.5rem', fontSize:'0.85rem', color:'var(--danger)', borderColor:'rgba(239,68,68,0.3)' }} onClick={() => deleteHeldOrder(order.id)}>Discard</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}

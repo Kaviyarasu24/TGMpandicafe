@@ -10,9 +10,12 @@ import Purchases from './pages/Purchases';
 import Login from './pages/Login';
 import Reports from './pages/Reports';
 import AIAnalytics from './pages/AIAnalytics';
+import AuditLogs from './pages/AuditLogs';
 import Settings from './pages/Settings';
 import ProtectedRoute from './components/ProtectedRoute';
 import PublicRoute from './components/PublicRoute';
+import ErrorBoundary from './components/ErrorBoundary';
+import Toaster from './components/Toaster';
 import { AuthProvider } from './context/AuthContext';
 
 function AppContent() {
@@ -107,6 +110,11 @@ function AppContent() {
                 <AIAnalytics />
               </ProtectedRoute>
             } />
+            <Route path="/admin/audit-logs" element={
+              <ProtectedRoute requireAdmin={true}>
+                <AuditLogs />
+              </ProtectedRoute>
+            } />
             <Route path="/settings" element={
               <ProtectedRoute>
                 <Settings />
@@ -124,9 +132,12 @@ function AppContent() {
 
 function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <AppContent />
+        <Toaster />
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
 

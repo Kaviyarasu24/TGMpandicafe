@@ -12,6 +12,56 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+// Centralized JWT secret. In production a missing secret is fatal (fail-fast) so a
+// misconfigured deployment cannot silently run on a shared, guessable default. In
+// development we fall back to a dev-only secret with a loud warning so local runs work.
+if (!process.env.JWT_SECRET) {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('[FATAL] JWT_SECRET is not set. Refusing to start in production with an insecure default. Set JWT_SECRET in the environment.');
+    process.exit(1);
+  }
+  console.warn('[SECURITY WARNING] JWT_SECRET is not set. Using an insecure development default. Set JWT_SECRET before deploying to production.');
+}
+const JWT_SECRET = process.env.JWT_SECRET || 'your-default-jwt-secret-key-change-in-production';
+
+// Simple in-memory brute-force guard for the login endpoint.
+// Tracks failed attempts per IP within a rolling window. No external dependency.
+const LOGIN_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const LOGIN_MAX_ATTEMPTS = 5;
+const loginAttempts = new Map(); // ip -> { count, firstAttempt }
+
+const recordLoginFailure = (ip) => {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (!entry || now - entry.firstAttempt > LOGIN_WINDOW_MS) {
+    loginAttempts.set(ip, { count: 1, firstAttempt: now });
+  } else {
+    entry.count += 1;
+  }
+};
+
+const clearLoginFailures = (ip) => loginAttempts.delete(ip);
+
+const isLoginBlocked = (ip) => {
+  const entry = loginAttempts.get(ip);
+  if (!entry) return false;
+  if (Date.now() - entry.firstAttempt > LOGIN_WINDOW_MS) {
+    loginAttempts.delete(ip);
+    return false;
+  }
+  return entry.count >= LOGIN_MAX_ATTEMPTS;
+};
+
+// Server-side password policy. Mirrors the strong-password rule enforced in the
+// sales settings UI so the API cannot be bypassed by calling it directly.
+const STRONG_PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+const validatePasswordStrength = (password) => {
+  if (!password || !STRONG_PASSWORD_REGEX.test(password)) {
+    return 'Password must be at least 8 characters and contain 1 uppercase, 1 lowercase, 1 number, and 1 special character.';
+  }
+  return null;
+};
+
 // Create uploads directory if it doesn't exist
 const uploadsDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadsDir)) {
@@ -37,12 +87,36 @@ const upload = multer({
 });
 
 const app = express();
+// Trust the first proxy hop (Render/hosting) so req.ip reflects the real
+// client address via X-Forwarded-For. Required for per-client rate limiting.
+app.set('trust proxy', 1);
 const httpServer = createServer(app);
+
+// CORS allowlist. Set ALLOWED_ORIGINS to a comma-separated list of frontend origins
+// (e.g. "https://tgmpandicafe.vercel.app,http://localhost:5173") to lock the API down.
+// If unset we stay permissive (current behavior) but warn loudly, so the cross-origin
+// Vercel->Render deploy keeps working until the operator sets the env var.
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
+  : null;
+if (!allowedOrigins) {
+  console.warn('[SECURITY WARNING] ALLOWED_ORIGINS is not set. CORS is open to all origins. Set ALLOWED_ORIGINS to lock the API to your frontend origin(s).');
+}
+// When an allowlist is configured, permit requests with no Origin header
+// (curl, server-to-server, same-origin) and any explicitly listed origin.
+const corsOrigin = allowedOrigins
+  ? (origin, cb) => {
+      if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+      return cb(new Error('Not allowed by CORS'));
+    }
+  : '*';
+const corsOptions = { origin: corsOrigin, methods: ['GET', 'POST', 'PUT', 'DELETE'] };
+
 const io = new Server(httpServer, {
-  cors: { origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE'] }
+  cors: corsOptions
 });
 
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads'))); // Serve uploaded images
 
@@ -67,7 +141,7 @@ const authenticateToken = (req, res, next) => {
     return res.status(401).json({ error: 'Access token required' });
   }
 
-  jwt.verify(token, process.env.JWT_SECRET || 'your-default-jwt-secret-key-change-in-production', (err, decoded) => {
+  jwt.verify(token, JWT_SECRET, (err, decoded) => {
     if (err) {
       return res.status(403).json({ error: 'Invalid or expired token' });
     }
@@ -84,14 +158,36 @@ app.use('/api', (req, res, next) => {
   authenticateToken(req, res, next);
 });
 
-// --- IMAGES API ---
-app.post('/api/images/upload', upload.single('image'), (req, res) => {
+// Role gate: require an admin token. Mirrors the frontend's admin-only route gating
+// (ProtectedRoute requireAdmin) so the API cannot be bypassed by a sales token calling
+// admin endpoints directly. Runs after the global authenticateToken guard, so req.user
+// is already populated.
+const requireAdmin = (req, res, next) => {
+  if (req.user?.role === 'admin') return next();
+  return res.status(403).json({ error: 'Admin privileges required' });
+};
+
+// Fire-and-forget audit trail helper. db.addAuditLog swallows its own errors, so a
+// logging failure can never break the primary request. Captures the acting user from
+// the verified JWT (req.user), so it cannot be spoofed by the request body.
+const audit = (req, action, entity, entityId, details) =>
+  db.addAuditLog({
+    username: req.user?.username,
+    role: req.user?.role,
+    action,
+    entity,
+    entity_id: entityId,
+    details
+  });
+
+// --- IMAGES API --- (admin-only: used by the Menu Manager)
+app.post('/api/images/upload', requireAdmin, upload.single('image'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   const imageUrl = `/uploads/${req.file.filename}`;
   res.json({ success: true, url: imageUrl });
 });
 
-app.get('/api/images/search', async (req, res) => {
+app.get('/api/images/search', requireAdmin, async (req, res) => {
   try {
     let query = req.query.q || '';
     
@@ -161,17 +257,29 @@ app.get('/api/images/search', async (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   try {
+    const clientIp = req.ip || req.connection.remoteAddress || 'unknown';
+
+    // Brute-force protection: check if this IP is blocked
+    if (isLoginBlocked(clientIp)) {
+      return res.status(429).json({ error: 'Too many login attempts. Please try again in 15 minutes.' });
+    }
+
     const { username, password } = req.body;
     const user = await db.getUserByUsername(username);
-    
+
     if (!user) {
+      recordLoginFailure(clientIp);
       return res.status(401).json({ error: 'Invalid username or password' });
     }
 
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
+      recordLoginFailure(clientIp);
       return res.status(401).json({ error: 'Invalid username or password' });
     }
+
+    // Successful login: clear any tracked failures for this IP
+    clearLoginFailures(clientIp);
 
     const token = jwt.sign(
       {
@@ -182,7 +290,7 @@ app.post('/api/auth/login', async (req, res) => {
         mobile: user.mobile,
         theme: user.theme
       },
-      process.env.JWT_SECRET || 'your-default-jwt-secret-key-change-in-production',
+      JWT_SECRET,
       { expiresIn: '24h' }
     );
 
@@ -224,6 +332,12 @@ app.put('/api/user/password', async (req, res) => {
       return res.status(400).json({ error: 'Current password is incorrect' });
     }
 
+    // Enforce password policy server-side (cannot be bypassed via direct API calls)
+    const strengthError = validatePasswordStrength(newPassword);
+    if (strengthError) {
+      return res.status(400).json({ error: strengthError });
+    }
+
     const salt = await bcrypt.genSalt(10);
     const hash = await bcrypt.hash(newPassword, salt);
     
@@ -254,31 +368,34 @@ app.get('/api/menu', async (req, res) => {
   }
 });
 
-app.post('/api/menu', async (req, res) => {
+app.post('/api/menu', requireAdmin, async (req, res) => {
   try {
     const result = await db.addMenuItem(req.body);
     broadcastUpdate('menu_added');
+    await audit(req, 'create', 'menu', result.id, req.body.name);
     res.json({ success: true, id: result.id });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.put('/api/menu/:id', async (req, res) => {
+app.put('/api/menu/:id', requireAdmin, async (req, res) => {
   try {
     const item = { ...req.body, id: req.params.id };
     await db.updateMenuItem(item);
     broadcastUpdate('menu_updated');
+    await audit(req, 'update', 'menu', req.params.id, req.body.name);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/menu/:id', async (req, res) => {
+app.delete('/api/menu/:id', requireAdmin, async (req, res) => {
   try {
     await db.deleteMenuItem(req.params.id);
     broadcastUpdate('menu_deleted');
+    await audit(req, 'delete', 'menu', req.params.id, null);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -299,6 +416,7 @@ app.post('/api/bills', async (req, res) => {
   try {
     const result = await db.createBill(req.body);
     broadcastUpdate('bill_created');
+    await audit(req, 'create', 'bill', result.billNumber, `Total ₹${req.body.total}`);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -310,6 +428,7 @@ app.put('/api/bills/:id', async (req, res) => {
     const billData = { ...req.body, id: req.params.id };
     const result = await db.updateBill(billData);
     broadcastUpdate('bill_updated');
+    await audit(req, 'update', 'bill', req.params.id, `Total ₹${req.body.total}`);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -320,16 +439,76 @@ app.delete('/api/bills/:id', async (req, res) => {
   try {
     await db.deleteBill(req.params.id);
     broadcastUpdate('bill_deleted');
+    await audit(req, 'delete', 'bill', req.params.id, null);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// --- INVENTORY LOGS API ---
-app.get('/api/inventory-logs', async (req, res) => {
+// Void a bill (soft, recoverable): restores stock and marks status='voided' instead
+// of hard-deleting. Available to any authenticated user, like delete.
+app.post('/api/bills/:id/void', async (req, res) => {
+  try {
+    await db.voidBill(req.params.id, req.body.reason);
+    broadcastUpdate('bill_voided');
+    await audit(req, 'void', 'bill', req.params.id, req.body.reason || null);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- HELD / PARKED ORDERS API --- (any authenticated user; cashiers park carts)
+app.get('/api/held-orders', async (req, res) => {
+  try {
+    const orders = await db.getHeldOrders();
+    res.json(orders);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/held-orders', async (req, res) => {
+  try {
+    const result = await db.addHeldOrder({
+      label: req.body.label,
+      created_by: req.user?.username,
+      cart_data: req.body.cart_data
+    });
+    broadcastUpdate('held_order_added');
+    res.json({ success: true, id: result.id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/held-orders/:id', async (req, res) => {
+  try {
+    await db.deleteHeldOrder(req.params.id);
+    broadcastUpdate('held_order_deleted');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- INVENTORY LOGS API --- (admin-only)
+app.get('/api/inventory-logs', requireAdmin, async (req, res) => {
   try {
     const logs = await db.getQuery(`SELECT * FROM inventory_logs ORDER BY date DESC, time DESC`);
+    res.json(logs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- AUDIT LOG API --- (admin-only): read-only activity trail of who changed what.
+app.get('/api/audit-logs', requireAdmin, async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+    const offset = parseInt(req.query.offset, 10) || 0;
+    const logs = await db.getAuditLogs({ limit, offset });
     res.json(logs);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -346,8 +525,8 @@ app.get('/api/stats', async (req, res) => {
   }
 });
 
-// --- PURCHASES API ---
-app.get('/api/purchases', async (req, res) => {
+// --- PURCHASES API --- (admin-only)
+app.get('/api/purchases', requireAdmin, async (req, res) => {
   try {
     const purchases = await db.getPurchases();
     res.json(purchases);
@@ -356,31 +535,34 @@ app.get('/api/purchases', async (req, res) => {
   }
 });
 
-app.post('/api/purchases', async (req, res) => {
+app.post('/api/purchases', requireAdmin, async (req, res) => {
   try {
     const result = await db.addPurchaseItem(req.body);
     broadcastUpdate('purchase_added');
+    await audit(req, 'create', 'purchase', result.id, req.body.description);
     res.json({ success: true, id: result.id });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.put('/api/purchases/:id', async (req, res) => {
+app.put('/api/purchases/:id', requireAdmin, async (req, res) => {
   try {
     const item = { ...req.body, id: req.params.id };
     await db.updatePurchaseItem(item);
     broadcastUpdate('purchase_updated');
+    await audit(req, 'update', 'purchase', req.params.id, req.body.description);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/purchases/:id', async (req, res) => {
+app.delete('/api/purchases/:id', requireAdmin, async (req, res) => {
   try {
     await db.deletePurchaseItem(req.params.id);
     broadcastUpdate('purchase_deleted');
+    await audit(req, 'delete', 'purchase', req.params.id, null);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -397,28 +579,30 @@ app.get('/api/categories', async (req, res) => {
   }
 });
 
-app.post('/api/categories', async (req, res) => {
+app.post('/api/categories', requireAdmin, async (req, res) => {
   try {
     const result = await db.addCategory(req.body);
     broadcastUpdate('category_added');
+    await audit(req, 'create', 'category', result.id, req.body.name);
     res.json({ success: true, id: result.id });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/categories/:id', async (req, res) => {
+app.delete('/api/categories/:id', requireAdmin, async (req, res) => {
   try {
     await db.deleteCategory(req.params.id);
     broadcastUpdate('category_deleted');
+    await audit(req, 'delete', 'category', req.params.id, null);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// --- USERS MANAGEMENT API ---
-app.get('/api/users', async (req, res) => {
+// --- USERS MANAGEMENT API --- (admin-only)
+app.get('/api/users', requireAdmin, async (req, res) => {
   try {
     const users = await db.getUsers();
     res.json(users);
@@ -427,30 +611,40 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
-app.post('/api/users', async (req, res) => {
+app.post('/api/users', requireAdmin, async (req, res) => {
   try {
+    // Enforce password policy server-side when creating users
+    if (req.body.password) {
+      const strengthError = validatePasswordStrength(req.body.password);
+      if (strengthError) {
+        return res.status(400).json({ error: strengthError });
+      }
+    }
     const result = await db.addUser(req.body);
     broadcastUpdate('user_added');
+    await audit(req, 'create', 'user', result.id, `${req.body.username} (${req.body.role})`);
     res.json({ success: true, id: result.id });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.put('/api/users/:id', async (req, res) => {
+app.put('/api/users/:id', requireAdmin, async (req, res) => {
   try {
     await db.updateUser(req.params.id, req.body);
     broadcastUpdate('user_updated');
+    await audit(req, 'update', 'user', req.params.id, req.body.username || null);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/users/:id', async (req, res) => {
+app.delete('/api/users/:id', requireAdmin, async (req, res) => {
   try {
     await db.deleteUser(req.params.id);
     broadcastUpdate('user_deleted');
+    await audit(req, 'delete', 'user', req.params.id, null);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

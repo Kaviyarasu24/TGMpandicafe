@@ -136,6 +136,24 @@ export const api = {
     const res = await apiInstance.delete(`/api/bills/${id}`);
     return res.data;
   },
+  voidBill: async (id, reason) => {
+    const res = await apiInstance.post(`/api/bills/${id}/void`, { reason });
+    return res.data;
+  },
+
+  // --- HELD / PARKED ORDERS ---
+  getHeldOrders: async () => {
+    const res = await apiInstance.get('/api/held-orders');
+    return res.data;
+  },
+  addHeldOrder: async (label, cartData) => {
+    const res = await apiInstance.post('/api/held-orders', { label, cart_data: cartData });
+    return res.data;
+  },
+  deleteHeldOrder: async (id) => {
+    const res = await apiInstance.delete(`/api/held-orders/${id}`);
+    return res.data;
+  },
   
   getDashboardStats: async () => {
     const res = await apiInstance.get('/api/stats');
@@ -203,6 +221,12 @@ export const api = {
   },
   deleteUser: async (id) => {
     const res = await apiInstance.delete(`/api/users/${id}`);
+    return res.data;
+  },
+
+  // --- AUDIT LOGS (admin-only) ---
+  getAuditLogs: async ({ limit = 100, offset = 0 } = {}) => {
+    const res = await apiInstance.get(`/api/audit-logs?limit=${limit}&offset=${offset}`);
     return res.data;
   }
 };

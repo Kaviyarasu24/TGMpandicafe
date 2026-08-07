@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Search, FileSpreadsheet, Receipt, Edit, Trash2 } from 'lucide-react';
+import { Download, Search, FileSpreadsheet, Receipt, Edit, Trash2, Ban } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api, socket } from '../api';
 import * as XLSX from 'xlsx';
@@ -9,6 +9,8 @@ const History = () => {
   const [search, setSearch] = useState('');
   const [dateFilter, setDateFilter] = useState(new Date().toISOString().split('T')[0]); // Default today
   const [billToDelete, setBillToDelete] = useState(null);
+  const [billToVoid, setBillToVoid] = useState(null);
+  const [voidReason, setVoidReason] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -64,6 +66,27 @@ const History = () => {
 
   const handleEdit = (bill) => {
     navigate('/billing', { state: { editBill: bill } });
+  };
+
+  const handleVoidConfirm = async () => {
+    if (!billToVoid) return;
+    try {
+      await api.voidBill(billToVoid.id, voidReason.trim() || 'No reason provided');
+      await loadBills();
+
+      const notif = document.createElement('div');
+      notif.className = 'animate-fade-in';
+      notif.style.cssText = 'position:fixed;bottom:20px;right:20px;background:var(--warning, #f59e0b);color:white;padding:1rem;border-radius:8px;z-index:9999;box-shadow:0 10px 15px -3px rgba(0,0,0,0.1);';
+      notif.innerHTML = '<strong>Bill voided.</strong><br/>Stock has been restored.';
+      document.body.appendChild(notif);
+      setTimeout(() => notif.remove(), 4000);
+    } catch (err) {
+      console.error("Error voiding bill", err);
+      alert('Failed to void bill: ' + (err?.response?.data?.error || err.message));
+    } finally {
+      setBillToVoid(null);
+      setVoidReason('');
+    }
   };
 
   const exportToExcel = () => {
@@ -175,9 +198,16 @@ const History = () => {
                 </tr>
               </thead>
               <tbody>
-                {filteredBills.map(bill => (
-                  <tr key={bill.id}>
-                    <td style={{ fontWeight: 700, color: 'var(--primary)', paddingLeft: '1.5rem', fontFamily: "'Inter', sans-serif", fontSize: '1.05rem' }}>#{bill.bill_number}</td>
+                {filteredBills.map(bill => {
+                  const isVoided = bill.status === 'voided';
+                  return (
+                  <tr key={bill.id} style={isVoided ? { opacity: 0.6 } : undefined}>
+                    <td style={{ fontWeight: 700, color: 'var(--primary)', paddingLeft: '1.5rem', fontFamily: "'Inter', sans-serif", fontSize: '1.05rem' }}>
+                      #{bill.bill_number}
+                      {isVoided && (
+                        <span title={bill.void_reason || 'Voided'} style={{ marginLeft: '0.5rem', padding: '0.15rem 0.5rem', borderRadius: 'var(--r-full)', background: 'rgba(239,68,68,0.15)', color: 'var(--danger)', fontSize: '0.65rem', fontWeight: 800, letterSpacing: '0.05em', verticalAlign: 'middle' }}>VOIDED</span>
+                      )}
+                    </td>
                     <td className="desktop-only" style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontWeight: 500 }}>
                       {new Date(bill.date_time).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
                     </td>
@@ -197,19 +227,27 @@ const History = () => {
                         {bill.payment_method}
                       </span>
                     </td>
-                    <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: "'Inter', sans-serif", fontSize: '1.1rem', color: 'var(--text)' }}>₹{bill.total.toFixed(2)}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: "'Inter', sans-serif", fontSize: '1.1rem', color: 'var(--text)', textDecoration: isVoided ? 'line-through' : 'none' }}>₹{bill.total.toFixed(2)}</td>
                     <td style={{ textAlign: 'right', paddingRight: '1.5rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                        <button className="icon-btn" style={{ color: 'var(--primary)' }} onClick={() => handleEdit(bill)} title="Edit Bill">
-                          <Edit size={18} />
-                        </button>
+                        {!isVoided && (
+                          <>
+                            <button className="icon-btn" style={{ color: 'var(--primary)' }} onClick={() => handleEdit(bill)} title="Edit Bill">
+                              <Edit size={18} />
+                            </button>
+                            <button className="icon-btn" style={{ color: 'var(--warning, #f59e0b)' }} onClick={() => { setBillToVoid(bill); setVoidReason(''); }} title="Void Bill (restores stock, keeps record)">
+                              <Ban size={18} />
+                            </button>
+                          </>
+                        )}
                         <button className="icon-btn" style={{ color: 'var(--danger)' }} onClick={() => setBillToDelete(bill)} title="Delete Bill">
                           <Trash2 size={18} />
                         </button>
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
                 {filteredBills.length === 0 && (
                   <tr>
                     <td colSpan="6" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
@@ -243,6 +281,41 @@ const History = () => {
               <button className="btn btn-outline" onClick={() => setBillToDelete(null)}>Cancel</button>
               <button className="btn btn-primary" style={{ background: 'var(--danger)', color: 'white' }} onClick={handleDeleteConfirm}>
                 Delete & Restore Stock
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Void Confirmation Modal */}
+      {billToVoid && (
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(12px)', zIndex: 1100,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '1rem'
+        }}>
+          <div className="card modal-container" style={{ width: '420px', maxWidth: '100%', animation: 'slideUp 0.3s var(--ease)', border: '1px solid var(--border-strong)', background: 'var(--bg-surface-solid)' }}>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '1rem', color: 'var(--warning, #f59e0b)' }}>Void Bill</h3>
+            <p style={{ color: 'var(--text-muted)', marginBottom: '1rem', lineHeight: '1.5' }}>
+              Voiding marks this bill as canceled (keeps the record for audit), restores stock, and excludes it from sales totals.
+            </p>
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text)', fontSize: '0.9rem' }}>Reason (optional)</label>
+              <input
+                className="input"
+                type="text"
+                placeholder="e.g. Customer canceled, Wrong entry..."
+                value={voidReason}
+                onChange={(e) => setVoidReason(e.target.value)}
+                style={{ width: '100%' }}
+                autoFocus
+              />
+            </div>
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+              <button className="btn btn-outline" onClick={() => { setBillToVoid(null); setVoidReason(''); }}>Cancel</button>
+              <button className="btn btn-primary" style={{ background: 'var(--warning, #f59e0b)', color: 'white' }} onClick={handleVoidConfirm}>
+                Void & Restore Stock
               </button>
             </div>
           </div>

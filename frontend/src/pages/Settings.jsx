@@ -8,6 +8,7 @@ import {
 import * as XLSX from 'xlsx';
 import { api, API_BASE_URL, apiInstance } from '../api';
 import { useAuth } from '../context/AuthContext';
+import { toast } from '../hooks/useToast';
 
 const SETTINGS_SECTIONS = [
   { id: 'users', title: 'User & Role Management', desc: 'Manage staff accounts and permissions', icon: Users },
@@ -46,6 +47,7 @@ const defaultSettings = {
 
 const Settings = () => {
   const { user, logout } = useAuth();
+  const role = user?.role || 'sales';
   const [saved, setSaved] = useState(false);
   
   const [settings, setSettings] = useState(() => {
@@ -174,7 +176,7 @@ const Settings = () => {
     if (role === 'admin') {
       loadUsers();
     }
-  }, []);
+  }, [role]);
 
   const loadUsers = async () => {
     try {
@@ -219,30 +221,35 @@ const Settings = () => {
     try {
       if (editingUser) {
         await api.updateUser({ id: editingUser.id, ...userFormData });
+        toast.success('User updated successfully');
       } else {
         await api.addUser(userFormData);
+        toast.success('User created successfully');
       }
       await loadUsers();
       setIsUserModalOpen(false);
     } catch (err) {
       console.error("Error saving user", err);
-      alert("Failed to save user: " + err.message);
+      const msg = err?.response?.data?.error || err.message || 'Failed to save user';
+      toast.error(msg);
     }
   };
 
-  const handleUserDelete = async (user) => {
-    const currentAdminUser = user?.username;
-    if (user.username === currentAdminUser) {
-      alert("You cannot delete your own logged-in account!");
+  const handleUserDelete = async (targetUser) => {
+    // Compare the target against the currently logged-in user (from auth context),
+    // not against itself. This prevents an admin from deleting their own account.
+    if (targetUser.username === user?.username) {
+      toast.warning("You cannot delete your own logged-in account!");
       return;
     }
-    if (window.confirm(`Are you sure you want to delete user "${user.username}"?`)) {
+    if (window.confirm(`Are you sure you want to delete user "${targetUser.username}"?`)) {
       try {
-        await api.deleteUser(user.id);
+        await api.deleteUser(targetUser.id);
+        toast.success('User deleted');
         await loadUsers();
       } catch (err) {
         console.error("Failed to delete user", err);
-        alert("Failed to delete user");
+        toast.error('Failed to delete user');
       }
     }
   };
@@ -282,7 +289,6 @@ const Settings = () => {
     </div>
   );
 
-  const role = user?.role || 'sales';
   const navigate = useNavigate();
 
   const handleLogout = () => {

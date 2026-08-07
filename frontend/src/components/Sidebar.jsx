@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, ShoppingBag, Grid3X3, Clock, 
   Package, DollarSign, User, FileText, 
-  MessageSquare, Users, BarChart2, Settings, LogOut, Hexagon, BrainCircuit
+  MessageSquare, Users, BarChart2, Settings, LogOut, Hexagon, BrainCircuit, ScrollText
 } from 'lucide-react';
 
 import { useAuth } from '../context/AuthContext';
@@ -87,6 +87,9 @@ const Sidebar = () => {
             </div>
             <NavLink to="/reports" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
               <BarChart2 size={18} /> <span className="desktop-only">Reports</span>
+            </NavLink>
+            <NavLink to="/admin/audit-logs" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+              <ScrollText size={18} /> <span className="desktop-only">Activity Log</span>
             </NavLink>
             <NavLink to="/admin/ai-analytics" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} style={{
               background: 'linear-gradient(90deg, rgba(139, 92, 246, 0.1) 0%, transparent 100%)',
