@@ -1,4 +1,4 @@
-const pg = require('pg');
+const mysql = require('mysql2');
 const path = require('path');
 const fs = require('fs');
 
@@ -28,18 +28,55 @@ if (!connectionString) {
 
 const cleanConnectionString = connectionString.split('?')[0];
 
-const client = new pg.Client({
-  connectionString: cleanConnectionString,
-  ssl: { rejectUnauthorized: false }
-});
+// Parse the connection string to create the database if it doesn't exist
+let url;
+try {
+  // Replace mysql:// with http:// temporarily to use Node's URL parser if it fails,
+  // but standard URL handles mysql:// protocol perfectly.
+  url = new URL(cleanConnectionString);
+} catch (e) {
+  console.error("Failed to parse connection string:", e.message);
+  process.exit(1);
+}
 
-client.connect((err) => {
+const dbName = url.pathname.replace(/^\//, '') || 'tgmcafe';
+
+const connectionOpts = {
+  host: url.hostname,
+  port: url.port || 3306,
+  user: url.username,
+  password: url.password
+};
+
+const setupConnection = mysql.createConnection(connectionOpts);
+
+setupConnection.connect((err) => {
   if (err) {
-    console.error('Error connecting to PostgreSQL database:', err.message);
+    console.error('Error connecting to MySQL server to check database:', err.message);
+    console.error('Please make sure your local MySQL server is running.');
     process.exit(1);
   }
-  console.log('Connected to PostgreSQL database for seeding.');
-  seedDb();
+
+  setupConnection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``, (err) => {
+    if (err) {
+      console.error(`Error creating database ${dbName}:`, err.message);
+      setupConnection.end();
+      process.exit(1);
+    }
+    console.log(`Database "${dbName}" verified/created successfully.`);
+    setupConnection.end();
+
+    // Now connect to the database and seed it
+    const connection = mysql.createConnection(cleanConnectionString);
+    connection.connect((err) => {
+      if (err) {
+        console.error('Error connecting to MySQL database:', err.message);
+        process.exit(1);
+      }
+      console.log('Connected to MySQL database for seeding.');
+      seedDb(connection);
+    });
+  });
 });
 
 const menuItems = [
@@ -133,9 +170,9 @@ const menuItems = [
   { name: 'Chicken Bites (6)', category: 'Starter (Non-Veg)', price: 100 },
 ];
 
-function seedDb() {
+function seedDb(connection) {
   const createTableQuery = `CREATE TABLE IF NOT EXISTS menu (
-    id SERIAL PRIMARY KEY,
+    id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     category VARCHAR(255) NOT NULL,
     price DECIMAL(10,2) NOT NULL,
@@ -144,32 +181,32 @@ function seedDb() {
     image_url TEXT
   )`;
 
-  client.query(createTableQuery, (err) => {
+  connection.query(createTableQuery, (err) => {
     if (err) {
       console.error("Error creating menu table:", err.message);
-      client.end();
+      connection.end();
       process.exit(1);
     }
 
-    client.query("DELETE FROM menu", (err) => {
+    connection.query("DELETE FROM menu", (err) => {
       if (err) {
         console.error("Error clearing old menu:", err.message);
-        client.end();
+        connection.end();
         process.exit(1);
       }
 
-      const stmt = "INSERT INTO menu (name, category, price, stock_count, min_stock) VALUES ($1, $2, $3, $4, $5)";
+      const stmt = "INSERT INTO menu (name, category, price, stock_count, min_stock) VALUES (?, ?, ?, ?, ?)";
       let completed = 0;
 
       menuItems.forEach(item => {
-        client.query(stmt, [item.name, item.category, item.price, 100, 10], (err) => {
+        connection.query(stmt, [item.name, item.category, item.price, 100, 10], (err) => {
           if (err) {
             console.error(`Error inserting ${item.name}:`, err.message);
           }
           completed++;
           if (completed === menuItems.length) {
-            console.log(`Successfully seeded ${menuItems.length} menu items into PostgreSQL!`);
-            client.end();
+            console.log(`Successfully seeded ${menuItems.length} menu items into MySQL!`);
+            connection.end();
             process.exit(0);
           }
         });

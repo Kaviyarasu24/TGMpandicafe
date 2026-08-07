@@ -1,5 +1,5 @@
 import os
-import psycopg2
+import pymysql
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,7 +40,16 @@ def get_db_connection():
     if not connection_url:
         raise HTTPException(status_code=500, detail="DATABASE_URL not found in environment settings.")
     try:
-        conn = psycopg2.connect(connection_url)
+        from urllib.parse import urlparse
+        url = urlparse(connection_url)
+        conn = pymysql.connect(
+            host=url.hostname or 'localhost',
+            user=url.username or 'root',
+            password=url.password or '',
+            database=url.path.lstrip('/') if url.path else '',
+            port=url.port or 3306,
+            autocommit=True
+        )
         return conn
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database connection failed: {str(e)}")
