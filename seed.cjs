@@ -20,35 +20,41 @@ function loadEnv() {
 
 loadEnv();
 
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  console.error("Error: DATABASE_URL not found in backend/.env");
-  process.exit(1);
+let host = process.env.MYSQL_HOST;
+let port = parseInt(process.env.MYSQL_PORT || '3306', 10);
+let user = process.env.MYSQL_USER;
+let password = process.env.MYSQL_PASSWORD || '';
+let dbName = process.env.MYSQL_DATABASE || 'tgmcafe';
+
+if (!host && process.env.DATABASE_URL) {
+  try {
+    const cleanConnectionString = process.env.DATABASE_URL.split('?')[0];
+    const url = new URL(cleanConnectionString);
+    host = url.hostname;
+    port = parseInt(url.port || '3306', 10);
+    user = url.username;
+    password = url.password;
+    dbName = url.pathname.replace(/^\//, '') || 'tgmcafe';
+  } catch (e) {
+    console.error("Failed to parse DATABASE_URL:", e.message);
+    process.exit(1);
+  }
+} else if (!host && !user) {
+  host = 'localhost';
+  user = 'root';
+  password = 'password';
+  dbName = 'tgmcafe';
+  port = 3306;
 }
 
-const cleanConnectionString = connectionString.split('?')[0];
-
-// Parse the connection string to create the database if it doesn't exist
-let url;
-try {
-  // Replace mysql:// with http:// temporarily to use Node's URL parser if it fails,
-  // but standard URL handles mysql:// protocol perfectly.
-  url = new URL(cleanConnectionString);
-} catch (e) {
-  console.error("Failed to parse connection string:", e.message);
-  process.exit(1);
-}
-
-const dbName = url.pathname.replace(/^\//, '') || 'tgmcafe';
-
-const connectionOpts = {
-  host: url.hostname,
-  port: url.port || 3306,
-  user: url.username,
-  password: url.password
+const serverConnectionOpts = {
+  host,
+  port,
+  user,
+  password
 };
 
-const setupConnection = mysql.createConnection(connectionOpts);
+const setupConnection = mysql.createConnection(serverConnectionOpts);
 
 setupConnection.connect((err) => {
   if (err) {
@@ -67,7 +73,11 @@ setupConnection.connect((err) => {
     setupConnection.end();
 
     // Now connect to the database and seed it
-    const connection = mysql.createConnection(cleanConnectionString);
+    const dbConnectionOpts = {
+      ...serverConnectionOpts,
+      database: dbName
+    };
+    const connection = mysql.createConnection(dbConnectionOpts);
     connection.connect((err) => {
       if (err) {
         console.error('Error connecting to MySQL database:', err.message);

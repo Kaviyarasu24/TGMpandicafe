@@ -4,17 +4,11 @@ import bcrypt from 'bcryptjs';
 
 dotenv.config();
 
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  console.error('[FATAL] DATABASE_URL environment variable is not set. The backend cannot connect to MySQL. Exiting.');
-  process.exit(1);
-}
-
-const cleanConnectionString = connectionString.split('?')[0];
-
-const pool = mysql.createPool({
-  uri: cleanConnectionString,
-  decimalAsNumber: true,
+const poolConfig = {
+  decimalNumbers: true,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
   typeCast: function (field, next) {
     if (field.type === 'DECIMAL' || field.type === 'NEWDECIMAL') {
       const value = field.string();
@@ -22,7 +16,22 @@ const pool = mysql.createPool({
     }
     return next();
   }
-});
+};
+
+if (process.env.MYSQL_HOST || process.env.MYSQL_USER || process.env.MYSQL_DATABASE) {
+  poolConfig.host = process.env.MYSQL_HOST || 'localhost';
+  poolConfig.user = process.env.MYSQL_USER || 'root';
+  poolConfig.password = process.env.MYSQL_PASSWORD || '';
+  poolConfig.database = process.env.MYSQL_DATABASE || 'tgmcafe';
+  poolConfig.port = parseInt(process.env.MYSQL_PORT || '3306', 10);
+} else if (process.env.DATABASE_URL) {
+  poolConfig.uri = process.env.DATABASE_URL.split('?')[0];
+} else {
+  console.error('[FATAL] MySQL environment variables (MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE) or DATABASE_URL are not set. Exiting.');
+  process.exit(1);
+}
+
+const pool = mysql.createPool(poolConfig);
 
 // Round a monetary value to 2 decimal places (paise precision) on write
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;

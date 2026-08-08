@@ -36,18 +36,39 @@ app.add_middleware(
 )
 
 def get_db_connection():
+    host = os.getenv("MYSQL_HOST")
+    user = os.getenv("MYSQL_USER")
+    password = os.getenv("MYSQL_PASSWORD", "")
+    database = os.getenv("MYSQL_DATABASE", "tgmcafe")
+    port = int(os.getenv("MYSQL_PORT", 3306))
+
     connection_url = os.getenv("DATABASE_URL")
-    if not connection_url:
-        raise HTTPException(status_code=500, detail="DATABASE_URL not found in environment settings.")
+    if not host and connection_url:
+        try:
+            from urllib.parse import urlparse
+            url = urlparse(connection_url)
+            host = url.hostname or 'localhost'
+            user = url.username or 'root'
+            password = url.password or ''
+            database = url.path.lstrip('/') if url.path else 'tgmcafe'
+            port = url.port or 3306
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to parse DATABASE_URL: {str(e)}")
+
+    if not host and not user and not connection_url:
+        host = 'localhost'
+        user = 'root'
+        password = 'password'
+        database = 'tgmcafe'
+        port = 3306
+
     try:
-        from urllib.parse import urlparse
-        url = urlparse(connection_url)
         conn = pymysql.connect(
-            host=url.hostname or 'localhost',
-            user=url.username or 'root',
-            password=url.password or '',
-            database=url.path.lstrip('/') if url.path else '',
-            port=url.port or 3306,
+            host=host or 'localhost',
+            user=user or 'root',
+            password=password,
+            database=database,
+            port=port,
             autocommit=True
         )
         return conn
