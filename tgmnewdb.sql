@@ -18,9 +18,9 @@
 -- =========================================================================
 
 -- Create and select the database (edit the name if you prefer another).
-CREATE DATABASE IF NOT EXISTS tgmpandicafe
+CREATE DATABASE IF NOT EXISTS tgmcafe
   CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE tgmpandicafe;
+USE tgmcafe;
 
 -- =========================================================================
 -- 1. Tables
